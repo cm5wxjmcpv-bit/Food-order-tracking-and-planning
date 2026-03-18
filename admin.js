@@ -5,36 +5,58 @@ const ADMIN_PASSWORD = "ChangeMe123!";
 
 const loginSection = document.getElementById("loginSection");
 const adminSection = document.getElementById("adminSection");
+const adminUsername = document.getElementById("adminUsername");
+const adminPassword = document.getElementById("adminPassword");
 const loginBtn = document.getElementById("loginBtn");
 const loginMessage = document.getElementById("loginMessage");
-
-const usernameInput = document.getElementById("adminUsername");
-const passwordInput = document.getElementById("adminPassword");
-
 const capacityInput = document.getElementById("capacityInput");
-const startingPointInput = document.getElementById("startingPoint");
-
-const saveBtn = document.getElementById("saveSettingsBtn");
+const startingPoint = document.getElementById("startingPoint");
+const saveSettingsBtn = document.getElementById("saveSettingsBtn");
 const refreshBtn = document.getElementById("refreshBtn");
-
-const tableBody = document.getElementById("requestsTableBody");
+const logoutBtn = document.getElementById("logoutBtn");
+const requestsTableBody = document.getElementById("requestsTableBody");
 
 loginBtn.addEventListener("click", doLogin);
-saveBtn.addEventListener("click", saveSettings);
+saveSettingsBtn.addEventListener("click", saveSettings);
 refreshBtn.addEventListener("click", loadAdminData);
+logoutBtn.addEventListener("click", doLogout);
+
+document.addEventListener("DOMContentLoaded", () => {
+  const loggedIn = sessionStorage.getItem("mealAdminLoggedIn") === "true";
+  if (loggedIn) {
+    showAdmin();
+    loadAdminData();
+  }
+});
 
 function doLogin() {
-  if (
-    usernameInput.value === ADMIN_USERNAME &&
-    passwordInput.value === ADMIN_PASSWORD
-  ) {
-    loginSection.style.display = "none";
-    adminSection.style.display = "block";
+  const user = adminUsername.value.trim();
+  const pass = adminPassword.value;
+
+  if (user === ADMIN_USERNAME && pass === ADMIN_PASSWORD) {
+    sessionStorage.setItem("mealAdminLoggedIn", "true");
+    loginMessage.textContent = "Login successful.";
+    loginMessage.style.color = "#127a35";
+    showAdmin();
     loadAdminData();
   } else {
-    loginMessage.textContent = "Invalid login";
-    loginMessage.style.color = "red";
+    loginMessage.textContent = "Invalid username or password.";
+    loginMessage.style.color = "#a32020";
   }
+}
+
+function doLogout() {
+  sessionStorage.removeItem("mealAdminLoggedIn");
+  adminSection.classList.add("hidden");
+  loginSection.classList.remove("hidden");
+  adminUsername.value = "";
+  adminPassword.value = "";
+  loginMessage.textContent = "";
+}
+
+function showAdmin() {
+  loginSection.classList.add("hidden");
+  adminSection.classList.remove("hidden");
 }
 
 async function loadAdminData() {
@@ -42,36 +64,40 @@ async function loadAdminData() {
     const res = await fetch(`${SCRIPT_URL}?action=getAdminData`);
     const data = await res.json();
 
-    if (!data.ok) throw new Error(data.error);
+    if (!data.ok) {
+      throw new Error(data.error || "Could not load admin data.");
+    }
 
     capacityInput.value = data.capacity || 0;
-    startingPointInput.value = data.startingPoint || "";
-
-    renderTable(data.requests || []);
+    startingPoint.value = data.startingPoint || "";
+    renderRequests(data.requests || []);
   } catch (err) {
-    alert("Error loading admin data");
     console.error(err);
+    alert(err.message || "Admin load failed.");
   }
 }
 
-function renderTable(rows) {
-  tableBody.innerHTML = "";
+function renderRequests(rows) {
+  requestsTableBody.innerHTML = "";
 
-  rows.forEach((r, i) => {
+  if (!rows.length) {
+    requestsTableBody.innerHTML = `<tr><td colspan="8">No requests found.</td></tr>`;
+    return;
+  }
+
+  rows.forEach((row, idx) => {
     const tr = document.createElement("tr");
-
     tr.innerHTML = `
-      <td>${i + 1}</td>
-      <td>${r.name || ""}</td>
-      <td>${r.validatedAddress || ""}</td>
-      <td>${r.phone || ""}</td>
-      <td>${r.dietaryRestrictions || ""}</td>
-      <td>${r.doorOfEntry || ""}</td>
-      <td>${r.comments || ""}</td>
-      <td>${r.timestamp || ""}</td>
+      <td>${idx + 1}</td>
+      <td>${escapeHtml(row.name || "")}</td>
+      <td>${escapeHtml(row.validatedAddress || row.addressRaw || "")}</td>
+      <td>${escapeHtml(row.phone || "")}</td>
+      <td>${escapeHtml(row.dietaryRestrictions || "")}</td>
+      <td>${escapeHtml(row.doorOfEntry || "")}</td>
+      <td>${escapeHtml(row.comments || "")}</td>
+      <td>${escapeHtml(row.timestamp || "")}</td>
     `;
-
-    tableBody.appendChild(tr);
+    requestsTableBody.appendChild(tr);
   });
 }
 
@@ -79,19 +105,33 @@ async function saveSettings() {
   try {
     const res = await fetch(SCRIPT_URL, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "saveSettings",
-        capacity: Number(capacityInput.value),
-        startingPoint: startingPointInput.value
+        capacity: Number(capacityInput.value || 0),
+        startingPoint: startingPoint.value.trim()
       })
     });
 
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
 
-    alert("Saved!");
+    if (!data.ok) {
+      throw new Error(data.error || "Settings save failed.");
+    }
+
+    alert("Settings saved.");
     loadAdminData();
   } catch (err) {
-    alert("Error saving settings");
+    console.error(err);
+    alert(err.message || "Could not save settings.");
   }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
