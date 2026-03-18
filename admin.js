@@ -5,56 +5,93 @@ const ADMIN_PASSWORD = "ChangeMe123!";
 
 const loginSection = document.getElementById("loginSection");
 const adminSection = document.getElementById("adminSection");
-const adminUsername = document.getElementById("adminUsername");
-const adminPassword = document.getElementById("adminPassword");
 const loginBtn = document.getElementById("loginBtn");
 const loginMessage = document.getElementById("loginMessage");
+
+const usernameInput = document.getElementById("adminUsername");
+const passwordInput = document.getElementById("adminPassword");
+
 const capacityInput = document.getElementById("capacityInput");
-const startingPoint = document.getElementById("startingPoint");
-const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+const startingPointInput = document.getElementById("startingPoint");
+
+const saveBtn = document.getElementById("saveSettingsBtn");
 const refreshBtn = document.getElementById("refreshBtn");
-const requestsTableBody = document.getElementById("requestsTableBody");
+
+const tableBody = document.getElementById("requestsTableBody");
 
 loginBtn.addEventListener("click", doLogin);
-saveSettingsBtn.addEventListener("click", saveSettings);
+saveBtn.addEventListener("click", saveSettings);
 refreshBtn.addEventListener("click", loadAdminData);
 
-document.addEventListener("DOMContentLoaded", () => {
-  const loggedIn = sessionStorage.getItem("mealAdminLoggedIn") === "true";
-  if (loggedIn) {
-    showAdmin();
-    loadAdminData();
-  }
-});
-
 function doLogin() {
-  if (adminUsername.value === ADMIN_USERNAME && adminPassword.value === ADMIN_PASSWORD) {
-    sessionStorage.setItem("mealAdminLoggedIn", "true");
-    loginMessage.textContent = "Login successful.";
-    loginMessage.style.color = "#127a35";
-    showAdmin();
+  if (
+    usernameInput.value === ADMIN_USERNAME &&
+    passwordInput.value === ADMIN_PASSWORD
+  ) {
+    loginSection.style.display = "none";
+    adminSection.style.display = "block";
     loadAdminData();
   } else {
-    loginMessage.textContent = "Invalid username or password.";
-    loginMessage.style.color = "#a32020";
+    loginMessage.textContent = "Invalid login";
+    loginMessage.style.color = "red";
   }
-}
-
-function showAdmin() {
-  loginSection.classList.add("hidden");
-  adminSection.classList.remove("hidden");
 }
 
 async function loadAdminData() {
   try {
     const res = await fetch(`${SCRIPT_URL}?action=getAdminData`);
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error || "Could not load admin data.");
+
+    if (!data.ok) throw new Error(data.error);
 
     capacityInput.value = data.capacity || 0;
-    startingPoint.value = data.startingPoint || "";
-    renderRequests(data.requests || []);
+    startingPointInput.value = data.startingPoint || "";
+
+    renderTable(data.requests || []);
   } catch (err) {
-    alert(err.message || "Admin load failed.");
+    alert("Error loading admin data");
+    console.error(err);
+  }
+}
+
+function renderTable(rows) {
+  tableBody.innerHTML = "";
+
+  rows.forEach((r, i) => {
+    const tr = document.createElement("tr");
+
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td>${r.name || ""}</td>
+      <td>${r.validatedAddress || ""}</td>
+      <td>${r.phone || ""}</td>
+      <td>${r.dietaryRestrictions || ""}</td>
+      <td>${r.doorOfEntry || ""}</td>
+      <td>${r.comments || ""}</td>
+      <td>${r.timestamp || ""}</td>
+    `;
+
+    tableBody.appendChild(tr);
+  });
+}
+
+async function saveSettings() {
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "saveSettings",
+        capacity: Number(capacityInput.value),
+        startingPoint: startingPointInput.value
+      })
+    });
+
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    alert("Saved!");
+    loadAdminData();
+  } catch (err) {
+    alert("Error saving settings");
   }
 }
