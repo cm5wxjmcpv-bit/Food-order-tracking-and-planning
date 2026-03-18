@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meal Request & Delivery</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <h1>Meal Request & Delivery</h1>
+      <div class="capacity-wrap">
+        <span>People left we can serve:</span>
+        <strong id="capacityCount">--</strong>
+      </div>
+      <button id="addPersonBtn" class="secondary-btn" type="button">Add Another Person</button>
+    </div>
+  </header>
+
+  <main class="page-wrap">
+    <section class="form-section">
+      <div id="formsContainer"></div>
+    </section>
+
+    <section class="submit-section">
+      <button id="submitAllBtn" class="primary-btn" type="button">Submit Request(s)</button>
+      <p id="statusMessage" class="status-message"></p>
+    </section>
+  </main>
+
+  <template id="personFormTemplate">
+    <article class="person-card">
+      <div class="person-card-header">
+        <h2>Meal Request for <span class="personNumber"></span></h2>
+        <button type="button" class="remove-btn">Remove</button>
+      </div>
+
+      <div class="grid">
+        <div class="field full">
+          <label>Name</label>
+          <input type="text" class="name" maxlength="100" required />
+        </div>
+
+        <div class="field full">
+          <label>Address</label>
+          <input type="text" class="address" placeholder="Start typing an address" required />
+          <div class="address-feedback"></div>
+          <input type="hidden" class="validatedAddress" />
+          <input type="hidden" class="lat" />
+          <input type="hidden" class="lng" />
+        </div>
+
+        <div class="field">
+          <label>Phone Number</label>
+          <input type="tel" class="phone" maxlength="25" required />
+        </div>
+
+        <div class="field">
+          <label>Dietary Restrictions</label>
+          <input type="text" class="dietary" maxlength="200" />
+        </div>
+
+        <div class="field">
+          <label>Door of Entry</label>
+          <select class="door" required>
+            <option value="">Select one</option>
+            <option value="Front door">Front door</option>
+            <option value="Side door">Side door</option>
+            <option value="Back door">Back door</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div class="field otherDoorWrap hidden">
+          <label>Other Door of Entry</label>
+          <input type="text" class="otherDoor" maxlength="100" />
+        </div>
+
+        <div class="field full">
+          <label>Comments</label>
+          <textarea class="comments" rows="4" maxlength="500"></textarea>
+</html>
