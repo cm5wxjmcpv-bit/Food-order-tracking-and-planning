@@ -86,3 +86,25 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+  .table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.admin-table th,
+.admin-table td {
+  border: 1px solid var(--border);
+  padding: 10px;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.95rem;
+}
+
+.admin-table th {
+  background: #edf2f8;
+}
