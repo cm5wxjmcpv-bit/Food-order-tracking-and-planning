@@ -1,4 +1,4 @@
-const SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbycK8gcNuHaK2bESMa6MIpJYnOqAh3dspcXRTLzbf5brcvlFGUCXgJCPC3YpfcdP_wS/exec";
 
 const formsContainer = document.getElementById("formsContainer");
 const addPersonBtn = document.getElementById("addPersonBtn");
