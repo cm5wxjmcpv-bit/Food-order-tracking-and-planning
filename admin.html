@@ -16,16 +16,19 @@
   <main class="page-wrap">
     <section id="loginSection" class="person-card" style="max-width:500px; margin:0 auto 20px;">
       <h2>Admin Login</h2>
+
       <div class="grid" style="grid-template-columns:1fr;">
         <div class="field">
-          <label>Username</label>
-          <input type="text" id="adminUsername" />
+          <label for="adminUsername">Username</label>
+          <input type="text" id="adminUsername" autocomplete="username" />
         </div>
+
         <div class="field">
-          <label>Password</label>
-          <input type="password" id="adminPassword" />
+          <label for="adminPassword">Password</label>
+          <input type="password" id="adminPassword" autocomplete="current-password" />
         </div>
       </div>
+
       <div style="margin-top:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <button id="loginBtn" class="primary-btn" type="button">Log In</button>
         <p id="loginMessage" class="status-message"></p>
@@ -35,19 +38,23 @@
     <section id="adminSection" class="hidden">
       <article class="person-card">
         <h2>Capacity Settings</h2>
+
         <div class="grid">
           <div class="field">
-            <label>People We Can Serve</label>
+            <label for="capacityInput">People We Can Serve</label>
             <input type="number" id="capacityInput" min="0" step="1" />
           </div>
+
           <div class="field">
-            <label>Pickup / Starting Point Address</label>
+            <label for="startingPoint">Pickup / Starting Point Address</label>
             <input type="text" id="startingPoint" />
           </div>
         </div>
+
         <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
           <button id="saveSettingsBtn" class="primary-btn" type="button">Save Settings</button>
           <button id="refreshBtn" class="secondary-btn" type="button">Refresh Requests</button>
+          <button id="logoutBtn" class="remove-btn" type="button">Log Out</button>
         </div>
       </article>
 
@@ -57,4 +64,23 @@
           <table class="admin-table">
             <thead>
               <tr>
+                <th>Order</th>
+                <th>Name</th>
+                <th>Address</th>
+                <th>Phone</th>
+                <th>Dietary</th>
+                <th>Door</th>
+                <th>Comments</th>
+                <th>Submitted</th>
+              </tr>
+            </thead>
+            <tbody id="requestsTableBody"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script src="admin.js"></script>
+</body>
 </html>
