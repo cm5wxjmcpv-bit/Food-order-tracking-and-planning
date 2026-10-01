@@ -1,0 +1,192 @@
+function approvedStops_(s, eventId) {
+  const ids = new Set(
+    s.REFERRALS.filter(
+      (r) => r.EventID === eventId && r.Status === "Approved",
+    ).map((r) => r.ReferralID),
+  );
+  return s.RECIPIENTS.filter(
+    (r) => r.EventID === eventId && ids.has(r.ReferralID),
+  );
+}
+function route_(s, eventId) {
+  const e = byId_(s, "EVENTS", eventId);
+  const rows = approvedStops_(s, eventId).sort(
+    (a, b) =>
+      (Number(a.RoutePosition) || 1e9) - (Number(b.RoutePosition) || 1e9) ||
+      a.CreatedAt.localeCompare(b.CreatedAt) ||
+      a.RecipientID.localeCompare(b.RecipientID),
+  );
+  let running = 0;
+  const stops = rows.map((r, i) => ({
+    recipientId: r.RecipientID,
+    stop: i + 1,
+    recipientName: r.RecipientName,
+    address: r.Address,
+    phone: r.Phone,
+    meals: Number(r.MealCount),
+    runningMeals: (running += Number(r.MealCount)),
+    dietaryRestrictions: r.DietaryRestrictions,
+    doorPreference: r.DoorPreference,
+    deliveryInstructions: r.DeliveryInstructions,
+    addressStatus: r.AddressStatus,
+  }));
+  const unresolved = stops.filter((r) => r.addressStatus !== "Confirmed");
+  return {
+    eventId: e.EventID,
+    eventName: e.EventName,
+    deliveryDate: e.DeliveryDate,
+    startAddress: e.StartAddress,
+    startAddressStatus: e.StartAddressStatus,
+    version: Number(e.RouteVersion),
+    readOnly: e.Archived === true || e.Status === "Completed",
+    needsReview: Boolean(e.RouteNeedsReview),
+    isFinal:
+      !e.RouteNeedsReview &&
+      e.StartAddressStatus === "Confirmed" &&
+      !unresolved.length,
+    unresolved,
+    stops,
+    totalMeals: running,
+  };
+}
+function routeOrder_(s, p, admin, optimized) {
+  const e = byId_(s, "EVENTS", p.eventId);
+  editable_(e);
+  if (Number(e.RouteVersion) !== Number(p.routeVersion))
+    fail_(
+      "CONFLICT",
+      "The delivery route changed. Refresh before saving this order.",
+    );
+  const stops = approvedStops_(s, e.EventID),
+    ids = stops.map((r) => r.RecipientID),
+    order = p.recipientIds;
+  if (
+    !Array.isArray(order) ||
+    order.length !== ids.length ||
+    new Set(order).size !== ids.length ||
+    order.some((id) => !ids.includes(id))
+  )
+    fail_(
+      "INVALID",
+      "The route must include every approved recipient exactly once.",
+    );
+  const old = stops
+    .slice()
+    .sort(
+      (a, b) =>
+        (Number(a.RoutePosition) || 1e9) - (Number(b.RoutePosition) || 1e9),
+    )
+    .map((r) => r.RecipientID);
+  order.forEach((id, i) => {
+    const r = byId_(s, "RECIPIENTS", id);
+    r.RoutePosition = i + 1;
+  });
+  e.RouteVersion = Number(e.RouteVersion) + 1;
+  e.RouteNeedsReview =
+    stops.some((r) => r.AddressStatus !== "Confirmed") ||
+    e.StartAddressStatus !== "Confirmed";
+  audit_(
+    s,
+    admin,
+    optimized ? "Route Optimized" : "Route Reordered",
+    "Event",
+    e.EventID,
+    old,
+    order,
+  );
+  return route_(s, e.EventID);
+}
+function optimize_(p) {
+  const a = requireAdmin_(),
+    e = byId_(a.state, "EVENTS", p.eventId);
+  editable_(e);
+  if (Number(p.routeVersion) !== Number(e.RouteVersion))
+    fail_("CONFLICT", "The delivery route changed. Refresh before optimizing.");
+  const stops = approvedStops_(a.state, e.EventID);
+  if (!stops.length)
+    fail_("INVALID", "Approve at least one recipient before optimizing.");
+  if (
+    e.StartAddressStatus !== "Confirmed" ||
+    stops.some((r) => r.AddressStatus !== "Confirmed")
+  )
+    fail_(
+      "ADDRESS_REVIEW",
+      "Address Needs Review. Confirm the pickup address and every approved recipient before optimization.",
+    );
+  mapsEnabled_();
+  const project = properties_().getProperty("MEALS_CLOUD_PROJECT_ID");
+  if (!project) fail_("CONFIG", "Route Optimization is not configured.");
+  // Google-derived coordinates stay transient: never write them to Sheets or audit history.
+  const pickup = addressLookup_(e.StartAddress);
+  const locations = stops.map((r) => addressLookup_(r.Address));
+  if (!pickup.confirmed || locations.some((x) => !x.confirmed))
+    fail_(
+      "ADDRESS_REVIEW",
+      "An address could not be reconfirmed. Review the addresses before routing.",
+    );
+  const start = new Date(Date.now() + 60000),
+    end = new Date(start.getTime() + 86400000);
+  const payload = {
+    model: {
+      globalStartTime: start.toISOString(),
+      globalEndTime: end.toISOString(),
+      vehicles: [
+        {
+          startLocation: {
+            latitude: pickup.latitude,
+            longitude: pickup.longitude,
+          },
+          costPerHour: 1,
+        },
+      ],
+      shipments: stops.map((r, i) => ({
+        label: r.RecipientID,
+        deliveries: [
+          {
+            arrivalLocation: {
+              latitude: locations[i].latitude,
+              longitude: locations[i].longitude,
+            },
+          },
+        ],
+      })),
+    },
+    timeout: "30s",
+  };
+  mapsUsage_("optimization", stops.length);
+  const res = UrlFetchApp.fetch(
+    "https://routeoptimization.googleapis.com/v1/projects/" +
+      encodeURIComponent(project) +
+      ":optimizeTours",
+    {
+      method: "post",
+      contentType: "application/json",
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    },
+  );
+  if (res.getResponseCode() !== 200)
+    fail_(
+      "MAPS",
+      "The route could not be optimized. The previous order is unchanged.",
+    );
+  const result = JSON.parse(res.getContentText());
+  if ((result.skippedShipments || []).length)
+    fail_(
+      "MAPS",
+      "The routing service could not include every stop. The previous order is unchanged.",
+    );
+  const visits = (result.routes || []).flatMap((r) => r.visits || []);
+  const ids = visits.map(
+    (v) => v.shipmentLabel || (stops[v.shipmentIndex || 0] || {}).RecipientID,
+  );
+  return locked_((s) =>
+    routeOrder_(
+      s,
+      { eventId: e.EventID, routeVersion: p.routeVersion, recipientIds: ids },
+      admin_(s),
+      true,
+    ),
+  );
+}

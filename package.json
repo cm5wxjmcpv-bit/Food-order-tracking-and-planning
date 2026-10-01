@@ -1,0 +1,14 @@
+{
+  "name": "community-meals-v1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/backend.test.mjs",
+    "test:ui": "node tests/browser.test.mjs",
+    "preview": "node tools/dev-server.mjs",
+    "check": "node tools/check.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

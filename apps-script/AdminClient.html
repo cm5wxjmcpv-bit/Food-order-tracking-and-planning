@@ -1,0 +1,836 @@
+"use strict";
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let events = [],
+    dashboard = null,
+    route = null,
+    editing = null,
+    viewOnly = false,
+    view = "requestsView",
+    busy = false,
+    dragId = null,
+    createId = null,
+    routeUnsaved = false;
+  const el = (tag, text, cls) => {
+    const n = document.createElement(tag);
+    if (text != null) n.textContent = text;
+    if (cls) n.className = cls;
+    return n;
+  };
+  const button = (text, fn, cls) => {
+    const b = el("button", text, cls);
+    b.type = "button";
+    b.addEventListener("click", fn);
+    return b;
+  };
+  const readonly = () =>
+    !dashboard ||
+    dashboard.event.Archived === true ||
+    dashboard.event.Status === "Completed";
+  function rpc(action, p = {}) {
+    return new Promise((resolve, reject) =>
+      google.script.run
+        .withSuccessHandler((r) =>
+          r.ok
+            ? resolve(r.data)
+            : reject(
+                new Error(
+                  r.error?.message ||
+                    "Your changes were not saved. Please try again.",
+                ),
+              ),
+        )
+        .withFailureHandler(() =>
+          reject(
+            new Error(
+              "The service could not be reached. Refresh and try again.",
+            ),
+          ),
+        )
+        .adminCall(action, p),
+    );
+  }
+  async function task(fn) {
+    if (busy) return;
+    busy = true;
+    $("adminEvents").disabled = true;
+    $("showArchived").disabled = true;
+    $("adminMessage").textContent = "Working…";
+    try {
+      await fn();
+      $("adminMessage").textContent = "";
+    } catch (e) {
+      $("adminMessage").textContent = e.message;
+    } finally {
+      busy = false;
+      $("adminEvents").disabled = false;
+      $("showArchived").disabled = false;
+    }
+  }
+  const dateLabel = (s) =>
+    new Date(s + "T12:00:00").toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  function today() {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  }
+  function metric(node, pairs) {
+    node.replaceChildren(...pairs.map(([k, v]) => el("span", k + ": " + v)));
+  }
+  function eventOptions() {
+    const list = events.filter(
+        (e) => $("showArchived").checked || e.Archived !== true,
+      ),
+      old = dashboard?.event.EventID || $("adminEvents").value;
+    const options = list.map((e) => {
+      const o = el("option", e.EventName + (e.Archived ? " (Archived)" : ""));
+      o.value = e.EventID;
+      return o;
+    });
+    $("adminEvents").replaceChildren(...options);
+    $("adminEvents").value = list.some((e) => e.EventID === old)
+      ? old
+      : (list.find((e) => e.DeliveryDate >= today()) || list[0])?.EventID || "";
+  }
+  async function refreshEvents(preferred) {
+    events = await rpc("events");
+    if (preferred) {
+      dashboard = null;
+      $("adminEvents").value = preferred;
+    }
+    eventOptions();
+    if (
+      preferred &&
+      events.some(
+        (e) =>
+          e.EventID === preferred &&
+          (!$("showArchived").checked ? e.Archived !== true : true),
+      )
+    )
+      $("adminEvents").value = preferred;
+    await refresh();
+  }
+  async function refresh() {
+    const id = $("adminEvents").value;
+    if (!id) {
+      dashboard = null;
+      route = null;
+      metric($("metrics"), []);
+      $("requestCards").replaceChildren(
+        el("p", "No events available. Create an event to get started."),
+      );
+      $("routeStops").replaceChildren();
+      $("routeTitle").textContent = "Delivery Route";
+      $("routeDate").textContent = "";
+      $("routeSummary").textContent = "";
+      $("routeStatus").textContent = "No event selected.";
+      $("archiveEvent").disabled = true;
+      $("reopenEvent").hidden = true;
+      $("settingsForm").inert = true;
+      $("readonlyNotice").textContent = "";
+      $("addReferral").disabled = true;
+      await reports();
+      return;
+    }
+    dashboard = await rpc("dashboard", { eventId: id });
+    route = await rpc("route", { eventId: id });
+    routeUnsaved = false;
+    renderDashboard();
+    renderRequests();
+    renderRoute();
+    renderSettings();
+    if (view === "reportsView") await reports();
+  }
+  function renderDashboard() {
+    metric($("metrics"), [
+      ["Capacity", dashboard.capacity],
+      ["Reserved", dashboard.reserved],
+      ["Available", dashboard.available],
+      ["Pending Referrals", dashboard.pendingReferrals],
+      ["Approved Referrals", dashboard.approvedReferrals],
+      ["Delivery Stops", dashboard.deliveryStops],
+    ]);
+    const ro = readonly();
+    $("readonlyNotice").textContent = ro
+      ? "This event is read-only. Use Reopen / Unarchive to make corrections."
+      : "";
+    $("archiveEvent").disabled = dashboard.event.Archived === true;
+    $("reopenEvent").hidden = !ro;
+    [
+      "addReferral",
+      "selectAll",
+      "approveSelected",
+      "rejectSelected",
+      "optimizeRoute",
+      "saveRoute",
+      "verifyPickup",
+    ].forEach((id) => ($(id).disabled = ro));
+    $("settingsForm").inert = ro;
+  }
+  function selectedRefs() {
+    return [...$("requestCards").querySelectorAll("input:checked")].map(
+      (x) => ({
+        referralId: x.dataset.referralId,
+        version: Number(x.dataset.version),
+      }),
+    );
+  }
+  async function changeStatus(referrals, status) {
+    if (!referrals.length) throw new Error("Select at least one referral.");
+    if (
+      status === "Rejected" &&
+      !confirm(
+        "Reject " +
+          referrals.length +
+          " referral(s) and release their reserved meals?",
+      )
+    )
+      return;
+    await rpc("statuses", { referrals, status });
+    await refresh();
+  }
+  function renderRequests() {
+    const refs = dashboard.referrals
+      .slice()
+      .sort(
+        (a, b) =>
+          (a.Status === "Pending" ? 0 : 1) - (b.Status === "Pending" ? 0 : 1) ||
+          a.SubmittedAt.localeCompare(b.SubmittedAt),
+      );
+    $("requestCards").replaceChildren();
+    if (!refs.length) $("requestCards").append(el("p", "No referrals yet."));
+    refs.forEach((r) => {
+      const card = el("article", null, "request-card"),
+        header = el("header");
+      const check = el("input");
+      check.type = "checkbox";
+      check.dataset.referralId = r.ReferralID;
+      check.dataset.version = r.Version;
+      check.disabled = readonly();
+      const label = el("label", null, "check-label");
+      label.append(check, el("span", "Select " + r.OrganizationName));
+      header.append(label, el("span", r.Status, "badge"));
+      card.append(
+        header,
+        el(
+          "h3",
+          r.OrganizationName +
+            " — " +
+            r.recipients.length +
+            " Recipients — " +
+            r.meals +
+            " Meals",
+        ),
+        el(
+          "p",
+          "Submitted " + new Date(r.SubmittedAt).toLocaleString(),
+          "hint",
+        ),
+      );
+      if (r.recipients.some((x) => x.DuplicateFlag))
+        card.append(
+          el(
+            "p",
+            "Possible Duplicate — open View to see matching records.",
+            "warning",
+          ),
+        );
+      if (r.recipients.some((x) => x.AddressStatus !== "Confirmed"))
+        card.append(el("p", "Address Needs Review", "badge"));
+      const actions = el("div", null, "actions");
+      actions.append(button("View", () => openReferral(r, true), "secondary"));
+      if (!readonly()) {
+        actions.append(
+          button("Edit", () => openReferral(r, false), "secondary"),
+        );
+        ["Approved", "Rejected", "Pending"]
+          .filter((s) => s !== r.Status)
+          .forEach((status) =>
+            actions.append(
+              button(
+                status === "Approved"
+                  ? "Approve"
+                  : status === "Rejected"
+                    ? "Reject"
+                    : "Return to Pending",
+                () =>
+                  task(() =>
+                    changeStatus(
+                      [{ referralId: r.ReferralID, version: r.Version }],
+                      status,
+                    ),
+                  ),
+                status === "Rejected" ? "danger" : "secondary",
+              ),
+            ),
+          );
+      }
+      card.append(actions);
+      $("requestCards").append(card);
+    });
+  }
+  function field(label, name, value, type = "text", max = 1000) {
+    const wrap = el("label", label),
+      input = el(type === "textarea" ? "textarea" : "input");
+    input.name = name;
+    if (type !== "textarea") input.type = type;
+    input.value = value ?? "";
+    input.maxLength = max;
+    if (type === "number") {
+      input.min = "1";
+      input.max = "10000";
+      input.step = "1";
+    }
+    if (["recipientName", "address", "mealCount"].includes(name))
+      input.required = true;
+    wrap.append(input);
+    return wrap;
+  }
+  function recipientEditor(r) {
+    const card = el("fieldset", null, "recipient-card");
+    if (r) {
+      card.dataset.recipientId = r.RecipientID;
+      card.dataset.version = r.Version;
+    }
+    card.append(
+      el("legend", "Recipient " + ($("editorRecipients").children.length + 1)),
+    );
+    const grid = el("div", null, "grid");
+    grid.append(
+      field("Recipient name", "recipientName", r?.RecipientName, "text", 160),
+      field(
+        "Street address (include apartment/unit)",
+        "address",
+        r?.Address,
+        "text",
+        500,
+      ),
+      field("Phone (optional)", "phone", r?.Phone, "tel", 40),
+      field("Number of meals", "mealCount", r?.MealCount || 1, "number"),
+      field(
+        "Dietary restrictions / allergies",
+        "dietaryRestrictions",
+        r?.DietaryRestrictions,
+        "textarea",
+        500,
+      ),
+    );
+    const door = el("label", "Preferred door"),
+      select = el("select");
+    select.name = "doorPreference";
+    ["Front", "Side", "Back", "Other"].forEach((s) => {
+      const o = el("option", s);
+      o.value = s;
+      select.append(o);
+    });
+    select.value = r?.DoorPreference || "Front";
+    door.append(select);
+    grid.append(
+      door,
+      field(
+        "Delivery instructions (printed)",
+        "deliveryInstructions",
+        r?.DeliveryInstructions,
+        "textarea",
+      ),
+      field(
+        "Internal notes (admin only; never printed)",
+        "notes",
+        r?.Notes,
+        "textarea",
+      ),
+    );
+    card.append(grid);
+    if (r) {
+      card.append(
+        el(
+          "p",
+          r.AddressStatus === "Confirmed"
+            ? "Address confirmed"
+            : "Address Needs Review",
+          r.AddressStatus === "Confirmed" ? "hint" : "warning",
+        ),
+      );
+      if (r.matches?.length) {
+        const details = el("details"),
+          summary = el("summary", "Possible Duplicate — matching recipients");
+        details.append(summary);
+        r.matches.forEach((m) =>
+          details.append(
+            el(
+              "p",
+              m.recipientName +
+                " — " +
+                m.address +
+                " — Referral " +
+                m.referralId,
+            ),
+          ),
+        );
+        card.append(details);
+      }
+      if (!readonly()) {
+        card.append(
+          button(
+            "Validate Saved Address",
+            () =>
+              task(async () => {
+                await rpc("verifyAddress", {
+                  recipientId: r.RecipientID,
+                  version: r.Version,
+                  entity: "recipient",
+                });
+                $("referralDialog").close();
+                await refresh();
+              }),
+            "secondary",
+          ),
+        );
+      }
+    } else {
+      card.append(
+        button(
+          "Remove Recipient",
+          () => {
+            if ($("editorRecipients").children.length > 1) {
+              card.remove();
+              [...$("editorRecipients").children].forEach(
+                (c, i) =>
+                  (c.querySelector("legend").textContent =
+                    "Recipient " + (i + 1)),
+              );
+            }
+          },
+          "secondary",
+        ),
+      );
+    }
+    $("editorRecipients").append(card);
+    if (viewOnly)
+      grid
+        .querySelectorAll("input,select,textarea")
+        .forEach((x) => (x.disabled = true));
+  }
+  function openReferral(r, read) {
+    editing = r || null;
+    viewOnly = read || readonly();
+    createId = r ? null : crypto.randomUUID();
+    $("referralHeading").textContent = r
+      ? viewOnly
+        ? "View Referral"
+        : "Edit Referral"
+      : "Add Referral";
+    $("editorMessage").textContent = "";
+    ["organizationName", "organizationEmail", "organizationPhone"].forEach(
+      (n) => {
+        const key = n[0].toUpperCase() + n.slice(1);
+        $("referralEditor").elements[n].value = r?.[key] || "";
+        $("referralEditor").elements[n].disabled = viewOnly;
+      },
+    );
+    $("editorRecipients").replaceChildren();
+    if (r) r.recipients.forEach(recipientEditor);
+    else recipientEditor();
+    $("editorAddRecipient").hidden = !!r || viewOnly;
+    $("saveReferral").hidden = viewOnly;
+    $("referralDialog").showModal();
+  }
+  function editorPayload() {
+    const f = $("referralEditor"),
+      p = { eventId: dashboard.event.EventID };
+    ["organizationName", "organizationEmail", "organizationPhone"].forEach(
+      (n) => (p[n] = f.elements[n].value.trim()),
+    );
+    p.recipients = [...$("editorRecipients").children].map((c) => {
+      const x = Object.fromEntries(
+        [...c.querySelectorAll("[name]")].map((n) => [
+          n.name,
+          n.name === "mealCount" ? Number(n.value) : n.value.trim(),
+        ]),
+      );
+      if (editing) {
+        x.recipientId = c.dataset.recipientId;
+        x.version = Number(c.dataset.version);
+      }
+      return x;
+    });
+    if (editing) {
+      p.referralId = editing.ReferralID;
+      p.version = editing.Version;
+    } else p.submissionId = createId;
+    return p;
+  }
+  function mapsUrl(address) {
+    return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
+      ? "https://maps.apple.com/?daddr=" + encodeURIComponent(address)
+      : "https://www.google.com/maps/search/?api=1&query=" +
+          encodeURIComponent(address);
+  }
+  function renumberRoute() {
+    let n = 0;
+    route.stops.forEach((r, i) => {
+      r.stop = i + 1;
+      n += r.meals;
+      r.runningMeals = n;
+    });
+    route.totalMeals = n;
+  }
+  function move(id, delta) {
+    const i = route.stops.findIndex((s) => s.recipientId === id),
+      j = i + delta;
+    if (j < 0 || j >= route.stops.length) return;
+    [route.stops[i], route.stops[j]] = [route.stops[j], route.stops[i]];
+    routeUnsaved = true;
+    renumberRoute();
+    renderRoute();
+  }
+  function renderRoute() {
+    if (!route) return;
+    $("routeTitle").textContent = route.eventName + " Delivery Route";
+    $("routeDate").textContent = dateLabel(route.deliveryDate);
+    $("routeSummary").textContent =
+      route.stops.length + " Stops · " + route.totalMeals + " Meals";
+    $("routeStatus").textContent = routeUnsaved
+      ? "Order changed. Save Manual Order before printing."
+      : route.isFinal
+        ? "Official delivery order saved."
+        : "Route is not final. " +
+          (route.unresolved.length
+            ? route.unresolved.length + " recipient address(es) need review. "
+            : "") +
+          (route.startAddressStatus !== "Confirmed"
+            ? "Pickup address needs review. "
+            : "") +
+          "Review addresses and save or optimize the route.";
+    $("printRoute").disabled = routeUnsaved || !route.isFinal;
+    $("optimizeRoute").disabled =
+      readonly() ||
+      route.unresolved.length > 0 ||
+      route.startAddressStatus !== "Confirmed";
+    $("saveRoute").disabled = readonly() || !route.stops.length;
+    $("routeStops").replaceChildren();
+    route.stops.forEach((r) => {
+      const card = el("article", null, "stop");
+      card.dataset.recipientId = r.recipientId;
+      const head = el("header");
+      head.append(
+        el("span", null, "print-check"),
+        el("h3", "Stop " + r.stop + " — " + r.recipientName),
+      );
+      card.append(head);
+      const address = el("p", null, "address"),
+        link = el("a", r.address);
+      link.href = mapsUrl(r.address);
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      address.append(link);
+      card.append(address);
+      const dl = el("dl");
+      const pair = (k, v) => {
+        if (v) {
+          dl.append(el("dt", k), el("dd", String(v)));
+        }
+      };
+      pair("Phone:", r.phone);
+      pair("Meals:", r.meals);
+      pair("Running Meal Total:", r.runningMeals);
+      pair("Dietary:", r.dietaryRestrictions);
+      pair("Door:", r.doorPreference);
+      pair("Delivery Instructions:", r.deliveryInstructions);
+      card.append(dl);
+      if (r.addressStatus !== "Confirmed")
+        card.append(el("p", "Address Needs Review", "badge"));
+      if (!readonly()) {
+        const controls = el("div", null, "actions no-print"),
+          up = button("Move Up", () => move(r.recipientId, -1), "secondary"),
+          down = button("Move Down", () => move(r.recipientId, 1), "secondary");
+        up.disabled = r.stop === 1;
+        down.disabled = r.stop === route.stops.length;
+        controls.append(up, down);
+        card.append(controls);
+        card.draggable = matchMedia("(pointer:fine)").matches;
+        card.addEventListener("dragstart", (ev) => {
+          dragId = r.recipientId;
+          ev.dataTransfer.setData("text/plain", r.recipientId);
+        });
+        card.addEventListener("dragover", (ev) => ev.preventDefault());
+        card.addEventListener("drop", (ev) => {
+          ev.preventDefault();
+          const i = route.stops.findIndex((x) => x.recipientId === dragId),
+            j = route.stops.findIndex((x) => x.recipientId === r.recipientId);
+          if (i < 0 || j < 0 || i === j) return;
+          const [row] = route.stops.splice(i, 1);
+          route.stops.splice(j, 0, row);
+          routeUnsaved = true;
+          renumberRoute();
+          renderRoute();
+        });
+      }
+      $("routeStops").append(card);
+    });
+    if (!route.stops.length)
+      $("routeStops").append(el("p", "No Approved recipients for this event."));
+  }
+  function renderSettings() {
+    const e = dashboard.event;
+    const values = {
+      eventName: e.EventName,
+      deliveryDate: e.DeliveryDate,
+      capacity: e.Capacity,
+      startAddress: e.StartAddress,
+      status: e.Status,
+    };
+    Object.entries(values).forEach(
+      ([k, v]) => ($("settingsForm").elements[k].value = v),
+    );
+    $("pickupStatus").textContent =
+      e.StartAddressStatus === "Confirmed"
+        ? "Pickup address confirmed."
+        : "Pickup Address Needs Review";
+  }
+  function eventPayload(f) {
+    return Object.fromEntries(
+      ["eventName", "deliveryDate", "capacity", "startAddress", "status"].map(
+        (n) => [
+          n,
+          n === "capacity"
+            ? Number(f.elements[n].value)
+            : f.elements[n].value.trim(),
+        ],
+      ),
+    );
+  }
+  async function reports() {
+    const old = $("reportEvent").value,
+      year = $("reportYear").value;
+    $("reportEvent").replaceChildren(el("option", "All events"));
+    $("reportEvent").firstChild.value = "";
+    events.forEach((e) => {
+      const o = el("option", e.EventName + (e.Archived ? " (Archived)" : ""));
+      o.value = e.EventID;
+      $("reportEvent").append(o);
+    });
+    $("reportEvent").value = old;
+    const years = [...new Set(events.map((e) => e.DeliveryDate.slice(0, 4)))]
+      .sort()
+      .reverse();
+    $("reportYear").replaceChildren(el("option", "All years"));
+    $("reportYear").firstChild.value = "";
+    years.forEach((y) => {
+      const o = el("option", y);
+      o.value = y;
+      $("reportYear").append(o);
+    });
+    $("reportYear").value = year;
+    const r = await rpc("reports", {
+      eventId: $("reportEvent").value,
+      year: $("reportYear").value,
+    });
+    metric($("reportTotals"), [
+      ["Events", r.totals.events],
+      ["Originally Requested Meals", r.totals.originallyRequestedMeals],
+      ["Currently Reserved Meals", r.totals.currentlyReservedMeals],
+      ["Approved Meals", r.totals.approvedMeals],
+      ["Rejected Meals", r.totals.rejectedMeals],
+      ["Recipient Records", r.totals.recipientRecords],
+      ["Approved Stops", r.totals.approvedStops],
+      ["Organizations", r.totals.organizations],
+    ]);
+    $("organizationReports").replaceChildren(
+      ...r.organizations.map((o) =>
+        el(
+          "div",
+          o.name +
+            " — " +
+            o.referrals +
+            " Referrals · " +
+            o.originallyRequestedMeals +
+            " Originally Requested Meals · " +
+            o.currentMeals +
+            " Current Meals",
+          "report-row",
+        ),
+      ),
+    );
+  }
+  document.querySelectorAll("[data-view]").forEach((b) =>
+    b.addEventListener("click", () =>
+      task(async () => {
+        view = b.dataset.view;
+        ["requestsView", "routeView", "settingsView", "reportsView"].forEach(
+          (id) => ($(id).hidden = id !== view),
+        );
+        document
+          .querySelectorAll("[data-view]")
+          .forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+        if (view === "reportsView") await reports();
+      }),
+    ),
+  );
+  $("adminEvents").addEventListener("change", () => task(refresh));
+  $("showArchived").addEventListener("change", () =>
+    task(async () => {
+      eventOptions();
+      await refresh();
+    }),
+  );
+  $("refreshAdmin").addEventListener("click", () =>
+    task(() => refreshEvents()),
+  );
+  $("createEvent").addEventListener("click", () => {
+    $("eventEditor").reset();
+    $("eventEditorMessage").textContent = "";
+    $("eventDialog").showModal();
+  });
+  $("closeEvent").addEventListener("click", () => $("eventDialog").close());
+  $("closeReferral").addEventListener("click", () =>
+    $("referralDialog").close(),
+  );
+  $("addReferral").addEventListener("click", () => openReferral(null, false));
+  $("editorAddRecipient").addEventListener("click", () => {
+    if ($("editorRecipients").children.length < 100) recipientEditor();
+  });
+  $("selectAll").addEventListener("click", () => {
+    $("requestCards")
+      .querySelectorAll('input[type="checkbox"]')
+      .forEach(
+        (x) =>
+          (x.checked =
+            dashboard.referrals.find(
+              (r) => r.ReferralID === x.dataset.referralId,
+            )?.Status === "Pending"),
+      );
+  });
+  $("approveSelected").addEventListener("click", () =>
+    task(() => changeStatus(selectedRefs(), "Approved")),
+  );
+  $("rejectSelected").addEventListener("click", () =>
+    task(() => changeStatus(selectedRefs(), "Rejected")),
+  );
+  $("referralEditor").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (busy) return;
+    task(async () => {
+      const payload = editorPayload();
+      try {
+        await rpc(editing ? "editReferral" : "createReferral", payload);
+        $("referralDialog").close();
+        await refresh();
+      } catch (err) {
+        $("editorMessage").textContent = err.message;
+        throw err;
+      }
+    });
+  });
+  $("eventEditor").addEventListener("submit", (e) => {
+    e.preventDefault();
+    task(async () => {
+      try {
+        const event = await rpc("saveEvent", eventPayload($("eventEditor")));
+        $("eventDialog").close();
+        await refreshEvents(event.EventID);
+      } catch (err) {
+        $("eventEditorMessage").textContent = err.message;
+        throw err;
+      }
+    });
+  });
+  $("settingsForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    task(async () => {
+      const d = dashboard.event;
+      await rpc("saveEvent", {
+        ...eventPayload($("settingsForm")),
+        eventId: d.EventID,
+        version: d.Version,
+      });
+      await refreshEvents(d.EventID);
+    });
+  });
+  $("archiveEvent").addEventListener("click", () =>
+    task(async () => {
+      if (
+        !confirm(
+          "Archive this event? Its records will remain available in Reports.",
+        )
+      )
+        return;
+      await rpc("archive", {
+        eventId: dashboard.event.EventID,
+        version: dashboard.event.Version,
+        mode: "archive",
+        confirmed: true,
+      });
+      dashboard = null;
+      await refreshEvents();
+    }),
+  );
+  $("reopenEvent").addEventListener("click", () =>
+    task(async () => {
+      if (
+        !confirm(
+          "Reopen / Unarchive this event for corrections? This action will be audit logged.",
+        )
+      )
+        return;
+      const id = dashboard.event.EventID;
+      await rpc("archive", {
+        eventId: id,
+        version: dashboard.event.Version,
+        mode: "reopen",
+        confirmed: true,
+      });
+      await refreshEvents(id);
+    }),
+  );
+  $("verifyPickup").addEventListener("click", () =>
+    task(async () => {
+      await rpc("verifyAddress", {
+        entity: "event",
+        eventId: dashboard.event.EventID,
+        version: dashboard.event.Version,
+      });
+      await refresh();
+    }),
+  );
+  $("optimizeRoute").addEventListener("click", () =>
+    task(async () => {
+      route = await rpc("optimize", {
+        eventId: route.eventId,
+        routeVersion: route.version,
+      });
+      await refresh();
+    }),
+  );
+  $("saveRoute").addEventListener("click", () =>
+    task(async () => {
+      route = await rpc("reorder", {
+        eventId: route.eventId,
+        routeVersion: route.version,
+        recipientIds: route.stops.map((r) => r.recipientId),
+      });
+      routeUnsaved = false;
+      renderRoute();
+    }),
+  );
+  $("printRoute").addEventListener("click", () => {
+    if (!routeUnsaved && route.isFinal) window.print();
+  });
+  ["reportEvent", "reportYear"].forEach((id) =>
+    $(id).addEventListener("change", () => task(reports)),
+  );
+  task(async () => {
+    const identity = await rpc("identity");
+    $("adminIdentity").textContent =
+      identity.email + " · " + identity.environment;
+    await refreshEvents();
+  });
+})();

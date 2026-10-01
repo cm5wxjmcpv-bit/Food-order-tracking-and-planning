@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <base target="_top" />
+    <style>
+      <?!= include_('AdminStyles'); ?>
+    </style>
+  </head>
+  <body>
+    <header class="site-header no-print">
+      <div class="page-wrap">
+        <h1>Community Meals</h1>
+        <p id="adminIdentity"></p>
+      </div>
+    </header>
+    <main class="page-wrap">
+      <section class="no-print">
+        <div class="grid">
+          <label>Meal event<select id="adminEvents"></select></label
+          ><label class="check-label"
+            ><input type="checkbox" id="showArchived" />Show archived
+            events</label
+          >
+        </div>
+        <div class="actions">
+          <button id="createEvent">Create Event</button
+          ><button id="archiveEvent" class="secondary">Archive Event</button
+          ><button id="reopenEvent" class="secondary" hidden>
+            Reopen / Unarchive</button
+          ><button id="refreshAdmin" class="secondary">Refresh</button>
+        </div>
+        <div id="metrics" class="metrics"></div>
+        <p id="readonlyNotice" class="warning"></p>
+        <nav class="tabs" aria-label="Admin sections">
+          <button data-view="requestsView" aria-selected="true">Requests</button
+          ><button data-view="routeView" aria-selected="false">
+            Delivery Route</button
+          ><button data-view="settingsView" aria-selected="false">
+            Event Settings</button
+          ><button data-view="reportsView" aria-selected="false">
+            Reports
+          </button>
+        </nav>
+        <p id="adminMessage" role="status" aria-live="polite"></p>
+      </section>
+      <section id="requestsView">
+        <h2>Requests</h2>
+        <div class="actions">
+          <button id="addReferral">Add Referral</button
+          ><button id="selectAll" class="secondary">Select All Pending</button
+          ><button id="approveSelected">Approve Selected</button
+          ><button id="rejectSelected" class="danger">Reject Selected</button>
+        </div>
+        <div id="requestCards"></div>
+      </section>
+      <section id="routeView" hidden>
+        <div class="route-header">
+          <h2 id="routeTitle">Delivery Route</h2>
+          <p id="routeDate"></p>
+          <p id="routeSummary"></p>
+          <p id="routeStatus" class="route-status warning"></p>
+          <p class="hint no-print" translate="no">
+            Route optimization: Google Maps
+          </p>
+        </div>
+        <div class="actions no-print">
+          <button id="optimizeRoute">Optimize Route</button
+          ><button id="saveRoute">Save Manual Order</button
+          ><button id="printRoute" class="secondary">
+            Print Delivery Sheet
+          </button>
+        </div>
+        <div id="routeStops"></div>
+      </section>
+      <section id="settingsView" hidden>
+        <h2>Event Settings</h2>
+        <form id="settingsForm">
+          <div class="grid">
+            <label
+              >Event name<input
+                name="eventName"
+                required
+                maxlength="160" /></label
+            ><label
+              >Delivery date<input
+                type="date"
+                name="deliveryDate"
+                required /></label
+            ><label
+              >Meal capacity<input
+                type="number"
+                name="capacity"
+                min="0"
+                max="100000"
+                step="1"
+                required /></label
+            ><label
+              >Status<select name="status">
+                <option>Draft</option>
+                <option>Open</option>
+                <option>Closed</option>
+                <option>Completed</option>
+              </select></label
+            ><label class="full"
+              >Starting / pickup address<input
+                name="startAddress"
+                required
+                maxlength="500"
+            /></label>
+          </div>
+          <div class="actions">
+            <button type="submit">Save Event Settings</button
+            ><button type="button" id="verifyPickup" class="secondary">
+              Validate Pickup Address
+            </button>
+          </div>
+          <p id="pickupStatus"></p>
+          <p class="hint" translate="no">Address validation: Google Maps</p>
+        </form>
+      </section>
+      <section id="reportsView" hidden>
+        <h2>Reports</h2>
+        <p class="hint">
+          Archived events are included. Recipient totals count delivery records
+          across events.
+        </p>
+        <div class="grid">
+          <label
+            >Event<select id="reportEvent">
+              <option value="">All events</option>
+            </select></label
+          ><label
+            >Year<select id="reportYear">
+              <option value="">All years</option>
+            </select></label
+          >
+        </div>
+        <div id="reportTotals" class="metrics"></div>
+        <h3>Referring organizations</h3>
+        <div id="organizationReports"></div>
+      </section>
+    </main>
+    <dialog id="referralDialog">
+      <div class="dialog-header">
+        <h2 id="referralHeading">Referral</h2>
+        <button type="button" id="closeReferral" class="secondary">
+          Close
+        </button>
+      </div>
+      <form id="referralEditor">
+        <fieldset>
+          <legend>Referring organization</legend>
+          <div class="grid">
+            <label
+              >Organization name<input
+                name="organizationName"
+                maxlength="160"
+                required /></label
+            ><label
+              >Email address<input
+                type="email"
+                name="organizationEmail"
+                maxlength="254"
+                required /></label
+            ><label
+              >Phone number<input
+                name="organizationPhone"
+                type="tel"
+                maxlength="40"
+                required
+            /></label>
+          </div>
+        </fieldset>
+        <div id="editorRecipients"></div>
+        <div class="actions">
+          <button type="button" id="editorAddRecipient" class="secondary">
+            + Add Another Recipient</button
+          ><button type="submit" id="saveReferral">Save Referral</button>
+        </div>
+      </form>
+      <p id="editorMessage" role="status"></p>
+    </dialog>
+    <dialog id="eventDialog">
+      <div class="dialog-header">
+        <h2>Create Event</h2>
+        <button id="closeEvent" class="secondary">Close</button>
+      </div>
+      <form id="eventEditor">
+        <div class="grid">
+          <label
+            >Event name<input
+              name="eventName"
+              required
+              maxlength="160" /></label
+          ><label
+            >Delivery date<input
+              type="date"
+              name="deliveryDate"
+              required /></label
+          ><label
+            >Meal capacity<input
+              type="number"
+              name="capacity"
+              min="0"
+              max="100000"
+              step="1"
+              required /></label
+          ><label
+            >Status<select name="status">
+              <option>Draft</option>
+              <option>Open</option>
+              <option>Closed</option>
+            </select></label
+          ><label class="full"
+            >Starting / pickup address<input
+              name="startAddress"
+              required
+              maxlength="500"
+          /></label>
+        </div>
+        <div class="actions"><button type="submit">Create Event</button></div>
+      </form>
+      <p id="eventEditorMessage" role="status"></p>
+    </dialog>
+    <script>
+      <?!= include_('AdminClient'); ?>
+    </script>
+  </body>
+</html>

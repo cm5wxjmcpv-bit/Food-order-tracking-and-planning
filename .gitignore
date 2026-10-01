@@ -1,0 +1,6 @@
+node_modules/
+.artifacts/
+.clasp.json
+.env
+.env.*
+*.local.json

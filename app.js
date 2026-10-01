@@ -1,205 +1,284 @@
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbycK8gcNuHaK2bESMa6MIpJYnOqAh3dspcXRTLzbf5brcvlFGUCXgJCPC3YpfcdP_wS/exec";
-
-const formsContainer = document.getElementById("formsContainer");
-const addPersonBtn = document.getElementById("addPersonBtn");
-const submitAllBtn = document.getElementById("submitAllBtn");
-const statusMessage = document.getElementById("statusMessage");
-const capacityCount = document.getElementById("capacityCount");
-const personFormTemplate = document.getElementById("personFormTemplate");
-
-let currentCapacity = 0;
-
-document.addEventListener("DOMContentLoaded", async () => {
-  addPersonCard();
-  await loadCapacity();
-});
-
-addPersonBtn.addEventListener("click", () => {
-  addPersonCard(true);
-});
-
-submitAllBtn.addEventListener("click", submitAllRequests);
-
-function addPersonCard(addToTop = false) {
-  const clone = personFormTemplate.content.cloneNode(true);
-  const card = clone.querySelector(".person-card");
-
-  const doorSelect = clone.querySelector(".door");
-  const otherDoorWrap = clone.querySelector(".otherDoorWrap");
-  const otherDoorInput = clone.querySelector(".otherDoor");
-  const removeBtn = clone.querySelector(".remove-btn");
-  const addressInput = clone.querySelector(".address");
-  const addressFeedback = clone.querySelector(".address-feedback");
-  const validatedAddress = clone.querySelector(".validatedAddress");
-  const latInput = clone.querySelector(".lat");
-  const lngInput = clone.querySelector(".lng");
-
-  doorSelect.addEventListener("change", () => {
-    const isOther = doorSelect.value === "Other";
-    otherDoorWrap.classList.toggle("hidden", !isOther);
-    otherDoorInput.required = isOther;
-    if (!isOther) otherDoorInput.value = "";
-  });
-
-  removeBtn.addEventListener("click", () => {
-    card.remove();
-    renumberCards();
-  });
-
-  if (window.google && google.maps && google.maps.places) {
-    const autocomplete = new google.maps.places.Autocomplete(addressInput, {
-      types: ["address"],
-      componentRestrictions: { country: "us" },
-      fields: ["formatted_address", "geometry", "name"]
-    });
-
-    autocomplete.addListener("place_changed", () => {
-      const place = autocomplete.getPlace();
-
-      if (!place || !place.formatted_address || !place.geometry) {
-        addressFeedback.textContent = "Please select a valid suggested address.";
-        addressFeedback.className = "address-feedback bad";
-        validatedAddress.value = "";
-        latInput.value = "";
-        lngInput.value = "";
-        return;
-      }
-
-      validatedAddress.value = place.formatted_address;
-      addressInput.value = place.formatted_address;
-      latInput.value = place.geometry.location.lat();
-      lngInput.value = place.geometry.location.lng();
-      addressFeedback.textContent = "Validated address selected.";
-      addressFeedback.className = "address-feedback good";
-    });
-
-    addressInput.addEventListener("blur", () => {
-      if (!validatedAddress.value || addressInput.value !== validatedAddress.value) {
-        addressFeedback.textContent = "Use a suggested address from the dropdown so the location is valid.";
-        addressFeedback.className = "address-feedback bad";
-      }
-    });
-  } else {
-    addressFeedback.textContent = "Google Maps address suggestions are not loaded yet.";
-    addressFeedback.className = "address-feedback bad";
-  }
-
-  if (addToTop && formsContainer.firstChild) {
-    formsContainer.insertBefore(clone, formsContainer.firstChild);
-  } else {
-    formsContainer.appendChild(clone);
-  }
-
-  renumberCards();
-}
-
-function renumberCards() {
-  const cards = formsContainer.querySelectorAll(".person-card");
-  cards.forEach((card, index) => {
-    card.querySelector(".personNumber").textContent = `Person ${index + 1}`;
-    const removeBtn = card.querySelector(".remove-btn");
-    removeBtn.style.display = cards.length === 1 ? "none" : "inline-block";
-  });
-}
-
-async function loadCapacity() {
-  capacityCount.textContent = "...";
-
+"use strict";
+(() => {
+  const $ = (id) => document.getElementById(id),
+    form = $("referralForm"),
+    container = $("recipients");
+  let events = [],
+    selected = null,
+    busy = false;
+  const storageKey = "community-meals-submission-v1";
+  let pending = null;
   try {
-    const res = await fetch(`${SCRIPT_URL}?action=getCapacity`);
-    const data = await res.json();
-
-    if (!data.ok) {
-      throw new Error(data.error || "Failed to load capacity");
+    pending = JSON.parse(sessionStorage.getItem(storageKey) || "null");
+  } catch (_) {
+    pending = null;
+  }
+  function retain(value) {
+    pending = value;
+    try {
+      if (value) sessionStorage.setItem(storageKey, JSON.stringify(value));
+      else sessionStorage.removeItem(storageKey);
+    } catch (_) {
+      /* Backend still deduplicates within this tab. */
     }
-
-    currentCapacity = Number(data.capacity || 0);
-    capacityCount.textContent = currentCapacity;
-  } catch (err) {
-    console.error(err);
-    capacityCount.textContent = "Error";
   }
-}
-
-function collectCards() {
-  const cards = [...formsContainer.querySelectorAll(".person-card")];
-
-  return cards.map((card, index) => {
-    const door = card.querySelector(".door").value;
-    const otherDoor = card.querySelector(".otherDoor").value.trim();
-    const resolvedDoor = door === "Other" ? otherDoor : door;
-
-    return {
-      personIndex: index + 1,
-      name: card.querySelector(".name").value.trim(),
-      addressRaw: card.querySelector(".address").value.trim(),
-      validatedAddress: card.querySelector(".validatedAddress").value.trim(),
-      lat: card.querySelector(".lat").value.trim(),
-      lng: card.querySelector(".lng").value.trim(),
-      phone: card.querySelector(".phone").value.trim(),
-      dietaryRestrictions: card.querySelector(".dietary").value.trim(),
-      doorOfEntry: resolvedDoor,
-      comments: card.querySelector(".comments").value.trim()
-    };
-  });
-}
-
-function validateRequests(requests) {
-  if (!requests.length) return "Add at least one person.";
-
-  for (const req of requests) {
-    if (!req.name) return `Person ${req.personIndex}: name is required.`;
-    if (!req.addressRaw) return `Person ${req.personIndex}: address is required.`;
-    if (!req.validatedAddress || !req.lat || !req.lng) return `Person ${req.personIndex}: please pick a valid address from the suggestions.`;
-    if (!req.phone) return `Person ${req.personIndex}: phone number is required.`;
-    if (!req.doorOfEntry) return `Person ${req.personIndex}: door of entry is required.`;
+  function utcLocalDate() {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
   }
-
-  if (requests.length > currentCapacity) {
-    return `You only have capacity for ${currentCapacity} more people.`;
-  }
-
-  return "";
-}
-
-async function submitAllRequests() {
-  statusMessage.textContent = "Submitting...";
-  statusMessage.style.color = "#16202a";
-
-  const requests = collectCards();
-  const error = validateRequests(requests);
-
-  if (error) {
-    statusMessage.textContent = error;
-    statusMessage.style.color = "#a32020";
-    return;
-  }
-
-  try {
-    const res = await fetch(SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "submitRequests",
-        requests
-      })
+  function dateLabel(s) {
+    return new Date(s + "T12:00:00").toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
     });
-
-    const data = await res.json();
-
-    if (!data.ok) {
-      throw new Error(data.error || "Submit failed");
-    }
-
-    statusMessage.textContent = "Request(s) submitted successfully.";
-    statusMessage.style.color = "#127a35";
-
-    formsContainer.innerHTML = "";
-    addPersonCard();
-    await loadCapacity();
-  } catch (err) {
-    console.error(err);
-    statusMessage.textContent = err.message || "There was a problem submitting the request(s).";
-    statusMessage.style.color = "#a32020";
   }
-}
+  function add() {
+    if (container.children.length >= 100) return;
+    const fragment = $("recipientTemplate").content.cloneNode(true);
+    const card = fragment.querySelector("fieldset");
+    card.querySelector(".remove").addEventListener("click", () => {
+      card.remove();
+      renumber();
+      totals();
+    });
+    container.append(fragment);
+    renumber();
+    totals();
+  }
+  function renumber() {
+    [...container.children].forEach((c, i) => {
+      c.querySelector(".recipient-number").textContent = i + 1;
+      c.querySelector(".remove").hidden = container.children.length === 1;
+    });
+    $("addRecipient").disabled = container.children.length >= 100 || busy;
+  }
+  function collect() {
+    const p = { eventId: selected?.eventId };
+    ["organizationName", "organizationEmail", "organizationPhone"].forEach(
+      (n) => (p[n] = form.elements[n].value.trim()),
+    );
+    p.recipients = [...container.children].map((c) =>
+      Object.fromEntries(
+        [...c.querySelectorAll("[name]")].map((el) => [
+          el.name,
+          el.name === "mealCount" ? Number(el.value) : el.value.trim(),
+        ]),
+      ),
+    );
+    return p;
+  }
+  function totals() {
+    const meals = [...container.querySelectorAll('[name="mealCount"]')].reduce(
+      (n, x) => n + (Number(x.value) || 0),
+      0,
+    );
+    $("recipientTotal").textContent = container.children.length;
+    $("mealTotal").textContent = meals;
+    $("availableTotal").textContent = selected ? selected.remaining : "—";
+    $("quantityWarning").textContent =
+      selected && meals > selected.remaining
+        ? "This request exceeds the meals currently available. Please reduce the meal quantities."
+        : "";
+    $("submitRequest").disabled =
+      busy ||
+      !selected ||
+      (selected.remaining <= 0 && !(pending && !pending.receipt));
+    $("eventSelect").disabled = busy || !events.length;
+    renumber();
+  }
+  function select(id) {
+    selected = events.find((e) => e.eventId === id) || null;
+    $("remaining").textContent = selected ? selected.remaining : "—";
+    $("eventDate").textContent = selected
+      ? dateLabel(selected.deliveryDate)
+      : "";
+    $("eventMessage").textContent = !selected
+      ? "There are no open meal events right now."
+      : selected.remaining === 0
+        ? "Sorry, all available meals for this event have been requested."
+        : "";
+    totals();
+  }
+  async function api(payload) {
+    const url = window.MEALS_CONFIG?.publicApiUrl;
+    if (!url)
+      throw new Error(
+        "This form is awaiting program setup. Please contact the referring program.",
+      );
+    let response;
+    try {
+      response = await fetch(
+        payload ? url : url + "?action=events",
+        payload
+          ? {
+              method: "POST",
+              headers: { "Content-Type": "text/plain;charset=utf-8" },
+              body: JSON.stringify(payload),
+            }
+          : { cache: "no-store" },
+      );
+    } catch (_) {
+      throw new Error(
+        "The service could not be reached. Please retry with the same information.",
+      );
+    }
+    if (!response.ok)
+      throw new Error("The service could not be reached. Please try again.");
+    let result;
+    try {
+      result = await response.json();
+    } catch (_) {
+      throw new Error(
+        "The service returned an unreadable response. Please retry with the same information.",
+      );
+    }
+    if (!result.ok) {
+      const error = new Error(
+        result.error?.message ||
+          "Your request could not be saved. Please try again.",
+      );
+      error.code = result.error?.code;
+      throw error;
+    }
+    return result.data;
+  }
+  async function load(preferred) {
+    try {
+      events = await api();
+      if (
+        pending &&
+        !pending.receipt &&
+        pending.event &&
+        !events.some((e) => e.eventId === pending.event.eventId)
+      )
+        events.push({ ...pending.event, remaining: 0 });
+      const keep =
+        preferred ||
+        selected?.eventId ||
+        (pending && !pending.receipt ? pending.event?.eventId : null);
+      const today = utcLocalDate();
+      const next = events.find((e) => e.deliveryDate >= today) || events[0];
+      $("eventSelect").replaceChildren(
+        ...events.map((e) => {
+          const o = document.createElement("option");
+          o.value = e.eventId;
+          o.textContent = e.eventName;
+          return o;
+        }),
+      );
+      $("eventSelect").value = events.some((e) => e.eventId === keep)
+        ? keep
+        : next?.eventId || "";
+      select($("eventSelect").value);
+    } catch (e) {
+      selected = null;
+      totals();
+      $("eventMessage").textContent = e.message;
+    }
+  }
+  async function hash(p) {
+    const bytes = new TextEncoder().encode(JSON.stringify(p));
+    const buffer = await crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(buffer)]
+      .map((x) => x.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  function showReceipt(receipt) {
+    form.hidden = true;
+    $("successPanel").hidden = false;
+    $("successMessage").textContent =
+      "Your request for " +
+      receipt.meals +
+      " meals for " +
+      receipt.eventName +
+      " has been received and is awaiting approval.";
+    $("receiptId").textContent = "Referral ID: " + receipt.referralId;
+  }
+  form.addEventListener("input", totals);
+  $("eventSelect").addEventListener("change", () => {
+    const id = $("eventSelect").value;
+    select(id);
+    load(id);
+  });
+  $("addRecipient").addEventListener("click", add);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (busy || !form.reportValidity() || !selected) return;
+    const payload = collect();
+    if (
+      payload.recipients.some(
+        (r) => !Number.isInteger(r.mealCount) || r.mealCount < 1,
+      )
+    )
+      return;
+    if (
+      !(pending && !pending.receipt) &&
+      payload.recipients.reduce((n, r) => n + r.mealCount, 0) >
+        selected.remaining
+    ) {
+      $("submissionMessage").textContent =
+        "Please reduce this request to the meals currently available.";
+      return;
+    }
+    busy = true;
+    form.inert = true;
+    totals();
+    $("submissionMessage").textContent = "Submitting…";
+    try {
+      const fingerprint = await hash(payload);
+      if (pending && !pending.receipt && pending.fingerprint !== fingerprint)
+        throw new Error(
+          "A previous submission has an uncertain result. Restore the same information and retry before starting a different request.",
+        );
+      if (!pending || pending.receipt)
+        retain({
+          id: crypto.randomUUID(),
+          fingerprint,
+          event: {
+            eventId: selected.eventId,
+            eventName: selected.eventName,
+            deliveryDate: selected.deliveryDate,
+          },
+        });
+      const receipt = await api({
+        ...payload,
+        action: "submit",
+        submissionId: pending.id,
+      });
+      retain({ ...pending, receipt });
+      showReceipt(receipt);
+      await load(payload.eventId);
+    } catch (error) {
+      if (["INVALID", "CAPACITY", "CLOSED", "FORBIDDEN"].includes(error.code))
+        retain(null);
+      $("submissionMessage").textContent =
+        error.message +
+        " If the result is uncertain, retry with the same information.";
+    } finally {
+      busy = false;
+      form.inert = false;
+      totals();
+    }
+  });
+  $("newRequest").addEventListener("click", () => {
+    retain(null);
+    form.reset();
+    container.replaceChildren();
+    add();
+    form.hidden = false;
+    $("successPanel").hidden = true;
+    $("submissionMessage").textContent = "";
+    load();
+  });
+  add();
+  if (pending?.receipt) showReceipt(pending.receipt);
+  else if (pending)
+    $("submissionMessage").textContent =
+      "A previous submission has an uncertain result. Re-enter the same information to retry safely. Recipient details were not stored in this browser.";
+  load();
+})();

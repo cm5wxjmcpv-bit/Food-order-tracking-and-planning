@@ -1,86 +1,23 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Meal Request Admin</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <header class="site-header">
-    <div class="header-inner">
-      <h1>Meal Request Admin</h1>
-    </div>
-  </header>
-
-  <main class="page-wrap">
-    <section id="loginSection" class="person-card" style="max-width:500px; margin:0 auto 20px;">
-      <h2>Admin Login</h2>
-
-      <div class="grid" style="grid-template-columns:1fr;">
-        <div class="field">
-          <label for="adminUsername">Username</label>
-          <input type="text" id="adminUsername" autocomplete="username" />
-        </div>
-
-        <div class="field">
-          <label for="adminPassword">Password</label>
-          <input type="password" id="adminPassword" autocomplete="current-password" />
-        </div>
-      </div>
-
-      <div style="margin-top:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <button id="loginBtn" class="primary-btn" type="button">Log In</button>
-        <p id="loginMessage" class="status-message"></p>
-      </div>
-    </section>
-
-    <section id="adminSection" class="hidden">
-      <article class="person-card">
-        <h2>Capacity Settings</h2>
-
-        <div class="grid">
-          <div class="field">
-            <label for="capacityInput">People We Can Serve</label>
-            <input type="number" id="capacityInput" min="0" step="1" />
-          </div>
-
-          <div class="field">
-            <label for="startingPoint">Pickup / Starting Point Address</label>
-            <input type="text" id="startingPoint" />
-          </div>
-        </div>
-
-        <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
-          <button id="saveSettingsBtn" class="primary-btn" type="button">Save Settings</button>
-          <button id="refreshBtn" class="secondary-btn" type="button">Refresh Requests</button>
-          <button id="logoutBtn" class="remove-btn" type="button">Log Out</button>
-        </div>
-      </article>
-
-      <article class="person-card">
-        <h2>Optimized Delivery Order</h2>
-        <div class="table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Order</th>
-                <th>Name</th>
-                <th>Address</th>
-                <th>Phone</th>
-                <th>Dietary</th>
-                <th>Door</th>
-                <th>Comments</th>
-                <th>Submitted</th>
-              </tr>
-            </thead>
-            <tbody id="requestsTableBody"></tbody>
-          </table>
-        </div>
-      </article>
-    </section>
-  </main>
-
-  <script src="admin.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Community Meals Administrator Access</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="config.js" defer></script>
+    <script src="admin.js" defer></script>
+  </head>
+  <body>
+    <main class="page-wrap narrow">
+      <h1>Administrator access</h1>
+      <p>
+        Use your approved Google account to open the protected community meal
+        dashboard.
+      </p>
+      <a id="adminLink" class="button" hidden>Open Administrator Dashboard</a>
+      <p id="adminStatus" role="status"></p>
+      <a href="index.html">Back to meal referrals</a>
+    </main>
+  </body>
 </html>
