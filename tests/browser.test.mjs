@@ -232,6 +232,72 @@ try {
     },
   );
   await check(
+    "Maps-disabled manual address review enables printing only after all addresses and order are reviewed",
+    async () => {
+      const accept = (d) => d.accept();
+      admin.on("dialog", accept);
+      try {
+        await admin
+          .getByRole("button", { name: "Event Settings", exact: true })
+          .click();
+        await admin.locator("#manualPickup").click();
+        await admin.waitForFunction(() =>
+          document
+            .getElementById("pickupStatus")
+            .textContent.includes("manually reviewed"),
+        );
+        await admin
+          .getByRole("button", { name: "Requests", exact: true })
+          .click();
+        const referrals = await admin.locator(".request-card").count();
+        for (let i = 0; i < referrals; i++) {
+          await admin
+            .locator(".request-card")
+            .nth(i)
+            .getByRole("button", { name: "Edit", exact: true })
+            .click();
+          const recipients = await admin
+            .locator("#editorRecipients > fieldset")
+            .count();
+          await admin.locator("#referralDialog").evaluate((d) => d.close());
+          for (let j = 0; j < recipients; j++) {
+            await admin
+              .locator(".request-card")
+              .nth(i)
+              .getByRole("button", { name: "Edit", exact: true })
+              .click();
+            await admin
+              .locator("#editorRecipients > fieldset")
+              .nth(j)
+              .getByRole("button", {
+                name: "Mark Saved Address Reviewed",
+                exact: true,
+              })
+              .click();
+            await admin.locator("#referralDialog").waitFor({ state: "hidden" });
+            await admin.waitForFunction(
+              () => !document.getElementById("adminEvents").disabled,
+            );
+          }
+        }
+        await admin
+          .getByRole("button", { name: "Delivery Route", exact: true })
+          .click();
+        assert.equal(await admin.locator("#printRoute").isDisabled(), true);
+        await admin
+          .getByRole("button", { name: "Save Manual Order", exact: true })
+          .click();
+        await admin.waitForFunction(
+          () => !document.getElementById("printRoute").disabled,
+        );
+        assert.equal(await admin.locator("#optimizeRoute").isDisabled(), true);
+        assert.equal(await admin.locator(".stop .badge").count(), 0);
+      } finally {
+        admin.off("dialog", accept);
+      }
+    },
+  );
+  await check(
     "Desktop drag-and-drop and tablet layout preserve official order and readable controls",
     async () => {
       const initial = await admin.locator(".stop h3").first().textContent();

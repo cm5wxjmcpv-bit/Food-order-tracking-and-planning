@@ -30,7 +30,7 @@ function route_(s, eventId) {
     deliveryInstructions: r.DeliveryInstructions,
     addressStatus: r.AddressStatus,
   }));
-  const unresolved = stops.filter((r) => r.addressStatus !== "Confirmed");
+  const unresolved = stops.filter((r) => !addressReviewed_(r.addressStatus));
   return {
     eventId: e.EventID,
     eventName: e.EventName,
@@ -40,9 +40,11 @@ function route_(s, eventId) {
     version: Number(e.RouteVersion),
     readOnly: e.Archived === true || e.Status === "Completed",
     needsReview: Boolean(e.RouteNeedsReview),
+    mapsEnabled:
+      properties_().getProperty("MEALS_MAPS_LIVE_ENABLED") === "true",
     isFinal:
       !e.RouteNeedsReview &&
-      e.StartAddressStatus === "Confirmed" &&
+      addressReviewed_(e.StartAddressStatus) &&
       !unresolved.length,
     unresolved,
     stops,
@@ -83,8 +85,8 @@ function routeOrder_(s, p, admin, optimized) {
   });
   e.RouteVersion = Number(e.RouteVersion) + 1;
   e.RouteNeedsReview =
-    stops.some((r) => r.AddressStatus !== "Confirmed") ||
-    e.StartAddressStatus !== "Confirmed";
+    stops.some((r) => !addressReviewed_(r.AddressStatus)) ||
+    !addressReviewed_(e.StartAddressStatus);
   audit_(
     s,
     admin,
@@ -106,8 +108,8 @@ function optimize_(p) {
   if (!stops.length)
     fail_("INVALID", "Approve at least one recipient before optimizing.");
   if (
-    e.StartAddressStatus !== "Confirmed" ||
-    stops.some((r) => r.AddressStatus !== "Confirmed")
+    !addressReviewed_(e.StartAddressStatus) ||
+    stops.some((r) => !addressReviewed_(r.AddressStatus))
   )
     fail_(
       "ADDRESS_REVIEW",

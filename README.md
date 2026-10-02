@@ -40,34 +40,15 @@ npm run test:ui
 
 The runner can resolve Playwright from the provided Codex runtime or a local installation. `MEALS_BROWSER_EXECUTABLE` can select an installed Chromium executable. There are no runtime npm dependencies for the production static site. Browser tests create ignored `.artifacts/` screenshots, JSON results and a synthetic multi-page print PDF.
 
-## Staging setup — next external dependency, not done automatically
+## Manual installation in the existing Apps Script project
 
-1. Provide the existing Apps Script editor URL or source export for comparison. No production source was accessible during this implementation.
-2. Provide both actual Google administrator emails. Do not put them in public files or config.js.
-3. Use the EXISTING spreadsheet `1qqXeHVIi5WMqtXMSIYtB9iuV0gPfy_QdGUgLlv8BD2w`. The six V1 tabs coexist with Requests/Settings. Never delete, rename, overwrite or import those legacy tabs during testing.
-4. Prefer the existing Apps Script project, but FIRST inspect its complete source, manifest, triggers, Script Properties and published deployment/version IDs. A versioned deployment freezes code; Script Properties and installable triggers remain shared. The new source uses doGet/doPost and helper/global names which must be checked for collisions. Do not paste files, replace the manifest, alter legacy properties/triggers, or update the production deployment before compatibility has been reviewed. If isolation cannot be demonstrated, stop and explain the limitation before proposing another script project. Do not create another project automatically.
-5. After source review proves isolation, prepare a new development version and NEW deployments without editing production deployment IDs. Reuse an already-enabled Advanced Sheets service when possible; evaluate manifest/scope changes before applying them. Keep Maps disabled.
-6. After checking that none of these property keys are used by production, add these backend-only Script Properties (do not replace existing properties):
+The user authorized replacing the old Apps Script source on October 2. Old implementation compatibility is no longer required. Use [the complete copy/paste installation package](docs/apps-script-installation.md): exact file names, complete file contents, manifest, private configuration, direct ADMINUSERS entries and two NEW web-app deployments. No account email is needed to prepare the package. No spreadsheet data is deleted/imported and main/GitHub Pages remain untouched.
 
-| Property | Value |
-| --- | --- |
-| MEALS_ENV | development |
-| MEALS_SPREADSHEET_ID | 1qqXeHVIi5WMqtXMSIYtB9iuV0gPfy_QdGUgLlv8BD2w |
-| MEALS_SHARED_SHEET_DEV_ID | 1qqXeHVIi5WMqtXMSIYtB9iuV0gPfy_QdGUgLlv8BD2w |
-| MEALS_ALLOW_SCHEMA_SETUP | true temporarily |
-| MEALS_BOOTSTRAP_ADMIN_EMAILS | first actual email,second actual email |
-| MEALS_MAPS_LIVE_ENABLED | false |
+The existing project is `1ZDIqJvXfmu1z2cYhlRfQNPf4ElyoKcVNeaG35NkeblARb6p4KJeOOGDm`. The existing spreadsheet and its six V1 tabs are used. Do not create another project or spreadsheet. ADMINUSERS is the authorization source; manual sheet configuration is preferred and bootstrap Script Properties are unnecessary for this installation. Set MEALS_ALLOW_SCHEMA_SETUP=false because the schema already exists.
 
-7. Review existing sharing first. Both administrator accounts need appropriate access for execute-as-user writes. Sharing a spreadsheet grants access across its tabs, including legacy records; confirm both accounts are authorized for that existing data. Do not enable public link sharing or alter unrelated sharing. Configure allowlisting in the private ADMINUSERS tab. Do not directly edit event/referral/recipient tables during normal operation; manual edits bypass application locks and validation.
-8. Run `setupDevelopmentSchema_` manually in the editor as an approved account. Run it again to prove repeatability. It only adds missing tabs; it refuses mismatched headers and does not delete or overwrite Requests/Settings. Set MEALS_ALLOW_SCHEMA_SETUP back to false afterward.
-9. Create a NEW development admin web-app deployment, executing as the user accessing the web app. Require Google-account access (or the applicable Workspace domain); do not deploy the admin as anonymous/execute-as-owner. Open its `/exec?page=admin` URL with each actual account separately and consent to the required scopes.
-10. Verify the identity displayed on screen matches EACH actual signed-in account. Run the identity RPC/`testAdminIdentity` through the deployment as each user; running the helper only in the editor proves the editor identity, not the second web-app identity.
-11. Test a third, non-allowlisted Google account and an anonymous request. Both must fail. If either real admin has blank/mismatched active/effective email, STOP. Do not change the checks to allow access.
-12. Create a separate development public deployment from the SAME script project, execute as owner, allowing anonymous referrals. Keep the production deployment untouched.
-13. For a LOCAL staging test, point the uncommitted public endpoint configuration at that development public URL. Use a distinct localhost origin/storage session. Do not point config.js at production and do not push configured staging endpoints to main.
-14. Complete the live tests in `docs/acceptance-tests.md` against the six V1 tabs only. Use event names such as `DEV TEST - Thanksgiving` and `DEV TEST - Christmas`, synthetic recipient identities and example.test organization emails. Do not write to Requests/Settings. Capture and compare legacy contents/metadata before and after the live suite.
+Maps-disabled operation now supports explicit confirmed/audited manual review of saved pickup/recipient addresses. Status remains `Manually Reviewed`, distinct from Google's `Confirmed`. Addresses requiring review remain visible and block a final/printable route. Save manual order after all addresses are reviewed. Changes to an address invalidate its prior review. Google validation and optimization remain disabled; no cloud-platform OAuth scope is requested until the later Maps phase.
 
-The provided manifest includes Maps' cloud-platform OAuth scope. Consent and organization policies may need review even while Maps calls are disabled. No OAuth tokens are transmitted to the client.
+The complete installation/deployment guide is prepared, but no source was uploaded or Apps Script deployment created. Actual identity checks for both accounts and all live backend tests remain required.
 
 ## Authentication failure policy
 
@@ -90,7 +71,7 @@ After separate approval, use a dedicated Cloud project linked to the approved Ap
 7. Create a $5 monthly budget with 50%, 90%, 100% actual-spend alerts and forecast alerts. These notify; they do not stop spending.
 8. Application-enforced hard request limits are implemented: Address Validation 300 calls/day and 3,000/month; optimization 500 shipment units/day and 3,000/month. Counters are reserved before each external call under a short lock, without holding the capacity lock during the call. Failed calls count conservatively. These counters constrain this application, not other projects sharing the billing account, and are not a billing-account dollar cap.
 9. Before enabling live calls, approve the program's public privacy/terms wording and provider attribution. Display attribution is included in the admin interface; public policy text requires the program owner's approval.
-10. Only then set MEALS_MAPS_LIVE_ENABLED=true in DEVELOPMENT and run live tests.
+10. Add https://www.googleapis.com/auth/cloud-platform to the manifest oauthScopes, authorize the new scope and deploy a new test version. Only then set MEALS_MAPS_LIVE_ENABLED=true in DEVELOPMENT and run live tests.
 
 Optimization begins at pickup and has no required end location/return leg. Every approved recipient remains a separate shipment/stop. An unresolved address blocks optimization, not referral submission. The service must return every approved stop exactly once; incomplete/duplicate/skipped results leave the prior order unchanged.
 

@@ -23,6 +23,8 @@
     b.addEventListener("click", fn);
     return b;
   };
+  const addressReviewed = (status) =>
+    ["Confirmed", "Manually Reviewed"].includes(status);
   const readonly = () =>
     !dashboard ||
     dashboard.event.Archived === true ||
@@ -242,7 +244,7 @@
             "warning",
           ),
         );
-      if (r.recipients.some((x) => x.AddressStatus !== "Confirmed"))
+      if (r.recipients.some((x) => !addressReviewed(x.AddressStatus)))
         card.append(el("p", "Address Needs Review", "badge"));
       const actions = el("div", null, "actions");
       actions.append(button("View", () => openReferral(r, true), "secondary"));
@@ -352,10 +354,12 @@
       card.append(
         el(
           "p",
-          r.AddressStatus === "Confirmed"
-            ? "Address confirmed"
+          addressReviewed(r.AddressStatus)
+            ? r.AddressStatus === "Manually Reviewed"
+              ? "Address manually reviewed (Google validation not performed)"
+              : "Address confirmed"
             : "Address Needs Review",
-          r.AddressStatus === "Confirmed" ? "hint" : "warning",
+          addressReviewed(r.AddressStatus) ? "hint" : "warning",
         ),
       );
       if (r.matches?.length) {
@@ -379,20 +383,45 @@
       if (!readonly()) {
         card.append(
           button(
-            "Validate Saved Address",
-            () =>
+            "Mark Saved Address Reviewed",
+            () => {
+              if (
+                !confirm(
+                  "Have you checked the SAVED address and confirmed it is usable for delivery? Unsaved edits are not reviewed. This is manual review, not Google validation.",
+                )
+              )
+                return;
               task(async () => {
-                await rpc("verifyAddress", {
+                await rpc("manualAddressReview", {
+                  entity: "recipient",
                   recipientId: r.RecipientID,
                   version: r.Version,
-                  entity: "recipient",
+                  confirmed: true,
                 });
                 $("referralDialog").close();
                 await refresh();
-              }),
+              });
+            },
             "secondary",
           ),
         );
+        if (route.mapsEnabled)
+          card.append(
+            button(
+              "Validate Saved Address",
+              () =>
+                task(async () => {
+                  await rpc("verifyAddress", {
+                    recipientId: r.RecipientID,
+                    version: r.Version,
+                    entity: "recipient",
+                  });
+                  $("referralDialog").close();
+                  await refresh();
+                }),
+              "secondary",
+            ),
+          );
       }
     } else {
       card.append(
@@ -506,15 +535,19 @@
           (route.unresolved.length
             ? route.unresolved.length + " recipient address(es) need review. "
             : "") +
-          (route.startAddressStatus !== "Confirmed"
+          (!addressReviewed(route.startAddressStatus)
             ? "Pickup address needs review. "
             : "") +
           "Review addresses and save or optimize the route.";
     $("printRoute").disabled = routeUnsaved || !route.isFinal;
     $("optimizeRoute").disabled =
       readonly() ||
+      !route.mapsEnabled ||
       route.unresolved.length > 0 ||
-      route.startAddressStatus !== "Confirmed";
+      !addressReviewed(route.startAddressStatus);
+    $("optimizeRoute").title = route.mapsEnabled
+      ? ""
+      : "Maps APIs are disabled; use manual ordering.";
     $("saveRoute").disabled = readonly() || !route.stops.length;
     $("routeStops").replaceChildren();
     route.stops.forEach((r) => {
@@ -546,7 +579,7 @@
       pair("Door:", r.doorPreference);
       pair("Delivery Instructions:", r.deliveryInstructions);
       card.append(dl);
-      if (r.addressStatus !== "Confirmed")
+      if (!addressReviewed(r.addressStatus))
         card.append(el("p", "Address Needs Review", "badge"));
       if (!readonly()) {
         const controls = el("div", null, "actions no-print"),
@@ -591,10 +624,13 @@
     Object.entries(values).forEach(
       ([k, v]) => ($("settingsForm").elements[k].value = v),
     );
-    $("pickupStatus").textContent =
-      e.StartAddressStatus === "Confirmed"
-        ? "Pickup address confirmed."
-        : "Pickup Address Needs Review";
+    $("verifyPickup").disabled = readonly() || !route.mapsEnabled;
+    $("manualPickup").disabled = readonly();
+    $("pickupStatus").textContent = addressReviewed(e.StartAddressStatus)
+      ? e.StartAddressStatus === "Manually Reviewed"
+        ? "Pickup address manually reviewed (Google validation not performed)."
+        : "Pickup address confirmed."
+      : "Pickup Address Needs Review";
   }
   function eventPayload(f) {
     return Object.fromEntries(
@@ -791,6 +827,23 @@
       await refreshEvents(id);
     }),
   );
+  $("manualPickup").addEventListener("click", () => {
+    if (
+      !confirm(
+        "Have you checked the SAVED pickup address and confirmed it is usable? This is manual review, not Google validation.",
+      )
+    )
+      return;
+    task(async () => {
+      await rpc("manualAddressReview", {
+        entity: "event",
+        eventId: dashboard.event.EventID,
+        version: dashboard.event.Version,
+        confirmed: true,
+      });
+      await refresh();
+    });
+  });
   $("verifyPickup").addEventListener("click", () =>
     task(async () => {
       await rpc("verifyAddress", {

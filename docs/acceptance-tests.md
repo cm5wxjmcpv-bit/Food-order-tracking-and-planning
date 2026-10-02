@@ -76,7 +76,7 @@ For checks requiring a real backend, the acceptance status below stays NOT YET T
 
 Use the DEVELOPMENT deployment and six new V1 tabs in the existing spreadsheet, never Requests/Settings or the current production public URL. Clearly prefix synthetic event names with DEV TEST -.
 
-1. Create a new Test Thanksgiving Event with 20 meals and synthetic identities.
+1. Create a new DEV TEST - Thanksgiving event with 20 meals and synthetic identities.
 2. Run the original 40 steps, recording actual receipts/row counts without printing personal data in logs.
 3. Launch two public submissions of 12 meals concurrently. At most one can succeed; persisted reservation must be 12, never 24.
 4. Concurrently attempt a public 10-meal submission and an admin increase to an existing referral that together would exceed 20. At most the available combined total may be committed.
@@ -97,4 +97,12 @@ Use the DEVELOPMENT deployment and six new V1 tabs in the existing spreadsheet, 
 
 ## Current gate
 
-No production deployment approval is requested. Pending dependencies are documented in README: existing Apps Script access, actual admin account emails, safe existing-project isolation and V1-tab setup, OAuth/identity checks, and separately approved Maps billing/API configuration.
+No production deployment approval is requested. Pending dependencies are documented in README: manual source installation, private ADMINUSERS configuration, new test deployments, OAuth/identity checks, and separately approved Maps billing/API configuration.
+
+## Maps-disabled manual review (installation update)
+
+PASS LOCAL: explicit confirmation and independent admin authorization; reviewed status remains Manually Reviewed; audit, optimistic conflict and archived-read-only checks; manual saved order becomes printable only after all pickup/recipient addresses are reviewed. Address edits restore Needs Review. No external calls are made.
+
+PASS LOCAL BROWSER: pickup and all recipient manual-review controls with confirmation; final saved route print button enables while Optimize remains disabled.
+
+NOT YET TESTED LIVE: repeat the same workflow after manual installation using both real accounts. Manually reviewed addresses are not claims of Google validation/geocoding.

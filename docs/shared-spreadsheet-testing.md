@@ -56,3 +56,7 @@ Review source and configuration before uploading the V1 source. Existing doGet/d
 After compatibility review, create new development versions/deployments only. Use the six V1 tabs and clearly labeled synthetic events (DEV TEST - Thanksgiving, DEV TEST - Christmas), synthetic recipients and example.test organizations. Test both real identities first and stop if either cannot be independently authorized. Record and compare legacy snapshots around the live suite.
 
 No merge, production frontend deployment, production backend replacement, Maps billing activation or legacy migration is authorized by this change. Legacy preservation/migration mapping still requires a separate proposal and approval.
+
+## Superseding source authorization
+
+The subsequent user instruction authorizes complete replacement of the old Apps Script source in project 1ZDIqJvXfmu1z2cYhlRfQNPf4ElyoKcVNeaG35NkeblARb6p4KJeOOGDm; legacy source compatibility review is no longer a blocker. The full manual installation package is apps-script-installation.md. This does not authorize data deletion/migration, Maps billing or a main merge. No source/deployment was changed by the assistant. Account emails go directly into ADMINUSERS; preparation is not blocked on them.

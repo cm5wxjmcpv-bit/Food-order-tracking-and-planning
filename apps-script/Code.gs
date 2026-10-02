@@ -79,6 +79,8 @@ function adminCall(action, p) {
     return locked_((s) => {
       const admin = admin_(s);
       switch (action) {
+        case "manualAddressReview":
+          return manualAddressReview_(s, p, admin);
         case "saveEvent":
           return eventWrite_(s, p, admin);
         case "archive":

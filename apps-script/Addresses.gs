@@ -125,3 +125,48 @@ function mapsUsage_(kind, units) {
     lock.releaseLock();
   }
 }
+
+// Manual review is an explicit admin attestation, never a Google geocode result.
+function addressReviewed_(status) {
+  return status === "Confirmed" || status === "Manually Reviewed";
+}
+function manualAddressReview_(s, p, admin) {
+  if (p.confirmed !== true)
+    fail_(
+      "CONFIRM",
+      "Confirm that you checked the saved address before marking it reviewed.",
+    );
+  if (!["event", "recipient"].includes(p.entity))
+    fail_("INVALID", "Please select an address to review.");
+  const isStart = p.entity === "event",
+    row = byId_(
+      s,
+      isStart ? "EVENTS" : "RECIPIENTS",
+      isStart ? p.eventId : p.recipientId,
+    ),
+    event = isStart ? row : byId_(s, "EVENTS", row.EventID);
+  editable_(event);
+  version_(row, p.version);
+  const old = isStart ? row.StartAddressStatus : row.AddressStatus;
+  if (isStart) row.StartAddressStatus = "Manually Reviewed";
+  else {
+    row.AddressStatus = "Manually Reviewed";
+    row.VerifiedAt = now_();
+  }
+  touch_(row);
+  routeDirty_(event);
+  audit_(
+    s,
+    admin,
+    "Address Manually Reviewed",
+    isStart ? "Event" : "Recipient",
+    isStart ? row.EventID : row.RecipientID,
+    old,
+    "Manually Reviewed",
+  );
+  return {
+    reviewed: true,
+    message:
+      "Saved address manually reviewed; Google validation was not performed.",
+  };
+}

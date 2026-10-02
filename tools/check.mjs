@@ -9,6 +9,23 @@ new vm.Script(fs.readFileSync("apps-script/AdminClient.html", "utf8"), {
 for (const f of ["app.js", "admin.js", "config.js"])
   new vm.Script(fs.readFileSync(f, "utf8"), { filename: f });
 JSON.parse(fs.readFileSync("apps-script/appsscript.json", "utf8"));
+const install = fs.readFileSync("docs/apps-script-installation.md", "utf8");
+for (const f of [
+  ...files,
+  "Admin.html",
+  "AdminClient.html",
+  "AdminStyles.html",
+  "appsscript.json",
+]) {
+  const heading = new RegExp(
+    "## File \\d+: " + f.replaceAll(".", "\\.") + "\\n",
+  );
+  const offset = install.search(heading);
+  if (offset < 0) throw new Error("Missing installation file: " + f);
+  const block = install.slice(offset).match(/```[^\n]*\n([\s\S]*?)```/);
+  if (!block || block[1] !== fs.readFileSync("apps-script/" + f, "utf8"))
+    throw new Error("Installation contents differ: " + f);
+}
 if (
   fs.readFileSync("styles.css", "utf8") !==
   fs.readFileSync("apps-script/AdminStyles.html", "utf8")

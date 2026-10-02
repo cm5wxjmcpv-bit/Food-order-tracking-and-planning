@@ -249,6 +249,7 @@ test("unauthorized admin dispatch and public direct admin calls fail closed", ()
       "createReferral",
       "reorder",
       "archive",
+      "manualAddressReview",
       "verifyAddress",
       "optimize",
     ]) {
@@ -736,5 +737,90 @@ test("precreated schema bootstraps only an empty ADMINUSERS tab and preserves al
   assert.equal(
     JSON.stringify([h.tables.get("Requests"), h.tables.get("Settings")]),
     legacy,
+  );
+});
+
+test("Maps-disabled manual review supports final saved routes with confirmation, authorization, audit and stale-edit checks", () => {
+  const h = harness(),
+    e = createEvent(h);
+  const receipt = ok(h.public(payload(e.EventID, [2, 3])));
+  ok(approve(h, [receipt.referralId]));
+  const ids = h.get("RECIPIENTS").map((r) => r.RecipientID);
+  code(
+    h.admin("manualAddressReview", {
+      entity: "event",
+      eventId: e.EventID,
+      version: 1,
+    }),
+    "CONFIRM",
+  );
+  ok(
+    h.admin("manualAddressReview", {
+      entity: "event",
+      eventId: e.EventID,
+      version: 1,
+      confirmed: true,
+    }),
+  );
+  for (const r of h.get("RECIPIENTS")) {
+    ok(
+      h.admin("manualAddressReview", {
+        entity: "recipient",
+        recipientId: r.RecipientID,
+        version: r.Version,
+        confirmed: true,
+      }),
+    );
+    code(
+      h.admin("manualAddressReview", {
+        entity: "recipient",
+        recipientId: r.RecipientID,
+        version: r.Version,
+        confirmed: true,
+      }),
+      "CONFLICT",
+    );
+  }
+  const route = ok(h.admin("route", { eventId: e.EventID }));
+  assert.equal(route.mapsEnabled, false);
+  assert.equal(route.isFinal, false);
+  const saved = ok(
+    h.admin("reorder", {
+      eventId: e.EventID,
+      routeVersion: route.version,
+      recipientIds: ids.reverse(),
+    }),
+  );
+  assert.equal(saved.isFinal, true);
+  assert.equal(saved.totalMeals, 5);
+  assert.equal(h.state.apiCalls, 0);
+  assert.equal(
+    h.get("AUDITLOG").filter((x) => x.Action === "Address Manually Reviewed")
+      .length,
+    3,
+  );
+  const p = editPayload(h, receipt.referralId);
+  p.recipients[0].address = "456 Synthetic Avenue";
+  ok(h.admin("editReferral", p));
+  const changed = ok(h.admin("route", { eventId: e.EventID }));
+  assert.equal(changed.isFinal, false);
+  assert.equal(changed.unresolved.length, 1);
+  const event = h.get("EVENTS")[0];
+  ok(
+    h.admin("archive", {
+      eventId: event.EventID,
+      version: event.Version,
+      confirmed: true,
+      mode: "archive",
+    }),
+  );
+  code(
+    h.admin("manualAddressReview", {
+      entity: "event",
+      eventId: event.EventID,
+      version: h.get("EVENTS")[0].Version,
+      confirmed: true,
+    }),
+    "READ_ONLY",
   );
 });
