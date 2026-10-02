@@ -95,11 +95,12 @@ function database_() {
     fail_("CONFIG", "Production writes have not been enabled.");
   if (
     env === "development" &&
-    id === "1qqXeHVIi5WMqtXMSIYtB9iuV0gPfy_QdGUgLlv8BD2w"
+    id === "1qqXeHVIi5WMqtXMSIYtB9iuV0gPfy_QdGUgLlv8BD2w" &&
+    p.getProperty("MEALS_SHARED_SHEET_DEV_ID") !== id
   )
     fail_(
       "CONFIG",
-      "Development cannot use the existing production spreadsheet.",
+      "Shared-spreadsheet development requires explicit backend configuration.",
     );
   return SpreadsheetApp.openById(id);
 }

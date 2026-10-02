@@ -1,6 +1,6 @@
 # Schema and non-destructive migration
 
-The schema is defined in `apps-script/Store.gs`, not spreadsheet row numbers. `Schema.gs` plans and creates only missing tabs in a separately configured development spreadsheet. Existing named tabs with different headers cause a clear error; no automatic overwrite/delete occurs. The existing production spreadsheet ID is explicitly refused when MEALS_ENV is development.
+The schema is defined in `apps-script/Store.gs`, not spreadsheet row numbers. `Schema.gs` plans and creates only missing tabs alongside Requests/Settings in the existing spreadsheet. Existing named tabs with different headers cause a clear error; no automatic overwrite/delete occurs. Shared-spreadsheet development requires MEALS_ENV=development and MEALS_SHARED_SHEET_DEV_ID equal to the configured spreadsheet ID. The allowlist bootstrap can append the two configured accounts only when ADMINUSERS contains its header alone. Existing account records remain untouched.
 
 | Tab         | Durable identifier | Purpose                                                                                                                |
 | ----------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------- |

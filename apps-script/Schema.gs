@@ -77,6 +77,20 @@ function setupDevelopmentSchema_() {
           },
         });
       });
+    // Connector-created headers may already exist. Bootstrap only an empty
+    // ADMINUSERS tab; never overwrite or replace an existing account record.
+    const admins = db.getSheetByName("ADMINUSERS");
+    if (admins && admins.getLastRow() === 1) {
+      requests.push({
+        appendCells: {
+          sheetId: admins.getSheetId(),
+          rows: bootstrap.map((email) => ({
+            values: [cell_(email), cell_(true), cell_("admin")],
+          })),
+          fields: "userEnteredValue",
+        },
+      });
+    }
     if (requests.length)
       Sheets.Spreadsheets.batchUpdate({ requests }, db.getId());
     return plan;

@@ -3,7 +3,7 @@
 Development branch: `development/community-meals-v1-20261001`.
 Production baseline: `b004cf872a1e81357af55f78b4aa5141c7e9c10d`.
 
-No production deployment, merge to main, Google Cloud billing activation, production spreadsheet mutation or production Apps Script update was performed.
+No production deployment, merge to main, Google Cloud billing activation or production Apps Script update was performed. On October 2, the six V1 header-only tabs were added to the existing spreadsheet under explicit authorization; Requests/Settings remained unchanged. See shared-spreadsheet-testing.md for the current integration status.
 
 ## Components implemented
 
@@ -22,7 +22,7 @@ No production deployment, merge to main, Google Cloud billing activation, produc
 | Mobile/responsive | Cards rather than wide tables, 46px controls, width-safe submitted text                                                               | 390px phone and 768px tablet browser viewport checked; actual iPhone/iPad Safari pending                              |
 | Printing          | Per-stop checkboxes, dietary/phone/instructions and running totals; no organization contacts or internal notes                        | 30 synthetic stops on eight Letter pages; first/last pages visually inspected and print DOM checked                   |
 | Reporting         | Original requested, current reserved/approved/rejected, recipient records, organizations, event/year filters, archived inclusion      | Mocked stored records + real local browser reporting tested                                                           |
-| Schema/migration  | Six-tab schema, repeatable add-only development setup, schema mismatch protection, read-only legacy migration plan                    | Synthetic preservation tests; real legacy import blocked pending mapping/source inspection                            |
+| Schema/migration  | Six-tab schema, repeatable add-only development setup, schema mismatch protection, read-only legacy migration plan                    | Real six-tab creation/header readback and unchanged legacy snapshots; import blocked pending mapping/source inspection                            |
 | Audit/security    | Protected old/new changes, typed string cells, safe text rendering, size limits, safe error boundaries                                | Local source/mocked/browser checks; staging literal Sheet cells and account protections pending                       |
 
 ## Changed / created files
@@ -56,7 +56,7 @@ No deployment workflow/configuration files were added or changed.
 
 ## Available test results
 
-- PASS: 26 local backend tests, using actual Apps Script source with mocked Google services.
+- PASS: 27 local backend tests, using actual Apps Script source with mocked Google services.
 - PASS: 9 real Chromium browser checks against the synthetic local backend, including native drag-and-drop, touch ordering, tablet width/200% text check, multi-page print, archive/unarchive and uncertain-response retry at zero remaining capacity.
 - PASS: JavaScript syntax, manifest parsing, shared CSS consistency and frontend credential-pattern checks.
 - FAIL: none outstanding in the available local suite.
@@ -67,7 +67,7 @@ These passes do NOT mark the corresponding live-backend acceptance requirements 
 
 1. Existing Apps Script editor/source access for comparison; no existing backend could be inspected beyond its known public endpoint reference.
 2. Both administrator Google account emails for private backend configuration and identity tests.
-3. Separate blank DEVELOPMENT Sheet and Apps Script project; enable Advanced Sheets service, apply the add-only schema there, authorize scopes and create two non-production deployments of the same script project. Step-by-step instructions are in README. Neither production deployment nor current Requests/Settings should be changed.
+3. Use the existing spreadsheet and its six new V1 tabs. Inspect the existing Apps Script project for shared properties/triggers/function collisions before creating NEW development deployments. No separate spreadsheet or script project is authorized. Preserve the published production version and all legacy tabs.
 4. Real signed-in identity tests for both accounts. Stop if either identity cannot be verified. Secure Google Identity Services/token-verification alternative is documented, not silently substituted.
 5. Live capacity/idempotency/atomicity/unauthorized-call tests on that development backend, including actual parallel requests and two-account stale edits.
 6. Separate Maps billing/API approval before enabling Address Validation and Route Optimization. Keep MEALS_MAPS_LIVE_ENABLED=false until then.
@@ -83,4 +83,4 @@ Coordinates are intentionally not persisted. Optimization revalidates every appr
 
 Anonymous referral programs can receive fraudulent requests that temporarily reserve capacity. Size limits and admin rejection are present; CAPTCHA/accounts were not added. Assess actual staged abuse behavior before considering extra friction.
 
-The production spreadsheet and its legacy comments are unchanged. Migration tooling currently provides a safe schema setup and dry-run plan, not an approved real-data import. Authentication and the system overall are not claimed finished. Production deployment approval is not being requested.
+Requests/Settings and their legacy comments are unchanged; six new V1 tabs coexist in that spreadsheet. Migration tooling currently provides a safe schema setup and dry-run plan, not an approved real-data import. Authentication and the system overall are not claimed finished. Production deployment approval is not being requested.

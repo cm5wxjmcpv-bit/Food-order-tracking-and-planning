@@ -74,7 +74,7 @@ For checks requiring a real backend, the acceptance status below stays NOT YET T
 
 ## Live capacity/failure testing procedure
 
-Use DEVELOPMENT only, not the production spreadsheet or current public URL.
+Use the DEVELOPMENT deployment and six new V1 tabs in the existing spreadsheet, never Requests/Settings or the current production public URL. Clearly prefix synthetic event names with DEV TEST -.
 
 1. Create a new Test Thanksgiving Event with 20 meals and synthetic identities.
 2. Run the original 40 steps, recording actual receipts/row counts without printing personal data in logs.
@@ -97,4 +97,4 @@ Use DEVELOPMENT only, not the production spreadsheet or current public URL.
 
 ## Current gate
 
-No production deployment approval is requested. Pending dependencies are documented in README: existing Apps Script access, actual admin account emails, development spreadsheet/project setup, OAuth/identity checks, and separately approved Maps billing/API configuration.
+No production deployment approval is requested. Pending dependencies are documented in README: existing Apps Script access, actual admin account emails, safe existing-project isolation and V1-tab setup, OAuth/identity checks, and separately approved Maps billing/API configuration.

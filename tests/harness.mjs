@@ -181,6 +181,15 @@ export function harness() {
       ["synthetic", "Legacy Test", "Legacy comment preserved"],
     ],
   });
+  tables.set("Settings", {
+    name: "Settings",
+    id: 578725089,
+    rows: [
+      ["Setting", "Value"],
+      ["Capacity", 37],
+      ["StartAddress", "Legacy pickup preserved"],
+    ],
+  });
   ctx.setupDevelopmentSchema_();
   return {
     ctx,

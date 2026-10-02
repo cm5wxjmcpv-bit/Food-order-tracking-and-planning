@@ -594,7 +594,17 @@ test("repeatable schema setup preserves legacy tabs; migration is blocked pendin
   assert.equal(JSON.stringify(h.tables.get("Requests")), legacy);
   assert.equal(h.ctx.legacyMigrationPlan_().canMigrate, false);
   h.props.MEALS_SPREADSHEET_ID = "1qqXeHVIi5WMqtXMSIYtB9iuV0gPfy_QdGUgLlv8BD2w";
-  assert.throws(() => h.ctx.schemaPlan_(), /Development cannot/);
+  assert.throws(() => h.ctx.schemaPlan_(), /Shared-spreadsheet development/);
+  h.props.MEALS_SHARED_SHEET_DEV_ID = h.props.MEALS_SPREADSHEET_ID;
+  const settings = JSON.stringify(h.tables.get("Settings"));
+  const calls = h.state.batchCalls;
+  h.ctx.setupDevelopmentSchema_();
+  h.ctx.setupDevelopmentSchema_();
+  assert.equal(h.state.batchCalls, calls);
+  const e = createEvent(h);
+  ok(h.public(payload(e.EventID, [2, 3])));
+  assert.equal(JSON.stringify(h.tables.get("Requests")), legacy);
+  assert.equal(JSON.stringify(h.tables.get("Settings")), settings);
 });
 test("completed event requires explicit audited reopen, and does not automatically reopen publicly", () => {
   const h = harness(),
@@ -703,5 +713,28 @@ test("address abbreviations and conservative similarity preserve unit distinctio
       "123 main st martinsville va unit 3",
     ),
     false,
+  );
+});
+
+test("precreated schema bootstraps only an empty ADMINUSERS tab and preserves all other tabs", () => {
+  const h = harness();
+  h.props.MEALS_SPREADSHEET_ID = "1qqXeHVIi5WMqtXMSIYtB9iuV0gPfy_QdGUgLlv8BD2w";
+  h.props.MEALS_SHARED_SHEET_DEV_ID = h.props.MEALS_SPREADSHEET_ID;
+  h.tables.get("ADMINUSERS").rows = [h.tables.get("ADMINUSERS").rows[0]];
+  const legacy = JSON.stringify([
+    h.tables.get("Requests"),
+    h.tables.get("Settings"),
+  ]);
+  h.failNext();
+  assert.throws(() => h.ctx.setupDevelopmentSchema_(), /Injected atomic/);
+  assert.equal(h.get("ADMINUSERS").length, 0);
+  h.ctx.setupDevelopmentSchema_();
+  assert.equal(h.get("ADMINUSERS").length, 2);
+  const accounts = JSON.stringify(h.tables.get("ADMINUSERS"));
+  h.ctx.setupDevelopmentSchema_();
+  assert.equal(JSON.stringify(h.tables.get("ADMINUSERS")), accounts);
+  assert.equal(
+    JSON.stringify([h.tables.get("Requests"), h.tables.get("Settings")]),
+    legacy,
   );
 });
