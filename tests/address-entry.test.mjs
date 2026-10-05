@@ -237,7 +237,7 @@ test("public address lookups require an open event; size/session checks and quot
     false,
   );
   h.props.MEALS_MAPS_USAGE_DAY = JSON.stringify({
-    date: new Date().toISOString().slice(0, 10),
+    date: h.ctx.Utilities.formatDate(new Date(), "America/Los_Angeles", "yyyy-MM-dd"),
     autocomplete: 1500,
   });
   assert.equal(
@@ -305,4 +305,46 @@ test("multi-word suite/unit segments are preserved intact, and expired verificat
     }
   };
   assert.equal(h.ctx.addressProofStatus_(address, token), "Needs Review");
+});
+
+test("validation allows the 800th monthly call and blocks the next call before Google", () => {
+  const h = configured(), e = createEvent(h);
+  provider(h, "100 Synthetic Lane");
+  const date = h.ctx.Utilities.formatDate(new Date(), "America/Los_Angeles", "yyyy-MM-dd");
+  h.props.MEALS_MAPS_USAGE_MONTH = JSON.stringify({ month: date.slice(0, 7), validation: 799 });
+  assert.equal(publicCall(h, "addressPreview", { eventId: e.EventID, address: "100 Synthetic Lane" }).ok, true);
+  assert.equal(JSON.parse(h.props.MEALS_MAPS_USAGE_MONTH).validation, 800);
+  const calls = h.state.apiCalls;
+  assert.equal(publicCall(h, "addressPreview", { eventId: e.EventID, address: "102 Synthetic Lane" }).error.code, "API_QUOTA");
+  assert.equal(h.state.apiCalls, calls);
+  assert.equal(h.public(payload(e.EventID, [2])).ok, true);
+  assert.equal(h.get("RECIPIENTS")[0].AddressStatus, "Needs Review");
+});
+
+test("validation allows the 25th daily call and blocks the next call before Google", () => {
+  const h = configured(), e = createEvent(h);
+  provider(h, "100 Synthetic Lane");
+  const date = h.ctx.Utilities.formatDate(new Date(), "America/Los_Angeles", "yyyy-MM-dd");
+  h.props.MEALS_MAPS_USAGE_DAY = JSON.stringify({ date, validation: 24 });
+  assert.equal(publicCall(h, "addressPreview", { eventId: e.EventID, address: "100 Synthetic Lane" }).ok, true);
+  const calls = h.state.apiCalls;
+  assert.equal(publicCall(h, "addressPreview", { eventId: e.EventID, address: "102 Synthetic Lane" }).error.code, "API_QUOTA");
+  assert.equal(h.state.apiCalls, calls);
+});
+
+test("usage resets at Pacific month boundary, never at the earlier UTC month boundary", () => {
+  const h = configured();
+  let instant = "2026-11-01T00:30:00Z";
+  h.ctx.Date = class extends Date {
+    constructor(...args) { super(...(args.length ? args : [instant])); }
+    static now() { return new Date(instant).getTime(); }
+  };
+  h.props.MEALS_MAPS_USAGE_MONTH = JSON.stringify({ month: "2026-10", validation: 800 });
+  assert.throws(() => h.ctx.mapsUsage_("validation", 1), /usage limit/);
+  assert.equal(JSON.parse(h.props.MEALS_MAPS_USAGE_MONTH).month, "2026-10");
+  instant = "2026-11-01T07:00:00Z";
+  h.ctx.mapsUsage_("validation", 1);
+  assert.equal(JSON.parse(h.props.MEALS_MAPS_USAGE_MONTH).month, "2026-11");
+  assert.equal(JSON.parse(h.props.MEALS_MAPS_USAGE_MONTH).validation, 1);
+  assert.equal(JSON.parse(h.props.MEALS_MAPS_USAGE_DAY).date, "2026-11-01");
 });

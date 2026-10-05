@@ -1256,7 +1256,7 @@ function dashboard_(s, p) {
 
 ## File 10: Addresses.gs
 
-SHA-256: 996fbb2a4b8416cd4c7d847579825432a375bb0b44a5a4ee87610609abf3595d
+SHA-256: ec18e51c548eb3aed184b4fbc31166be79f2f406a8c7333518bffa9522c44dd8
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -1352,13 +1352,15 @@ function verifyAddress_(p) {
 }
 // Reserve usage before the external call; failed calls count conservatively.
 // No names, addresses or credentials are included in counters.
+// Address budgets use Pacific calendar dates. Keep existing counters on installation.
+// Application limits do not cap calls made outside this Apps Script project.
 function mapsUsage_(kind, units) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000))
     fail_("BUSY", "The system is busy. Try again shortly.");
   try {
     const p = properties_(),
-      date = now_().slice(0, 10),
+      date = Utilities.formatDate(new Date(), "America/Los_Angeles", "yyyy-MM-dd"),
       month = date.slice(0, 7);
     let daily, monthly;
     try {
@@ -1371,8 +1373,8 @@ function mapsUsage_(kind, units) {
     if (monthly.month !== month)
       monthly = { month, validation: 0, optimization: 0 };
     const dailyLimit =
-        kind === "autocomplete" ? 1500 : kind === "validation" ? 300 : 500,
-      monthLimit = kind === "autocomplete" ? 10000 : 3000;
+        kind === "autocomplete" ? 1500 : kind === "validation" ? 25 : 500,
+      monthLimit = kind === "autocomplete" ? 10000 : kind === "validation" ? 800 : 3000;
     if (
       (daily[kind] || 0) + units > dailyLimit ||
       (monthly[kind] || 0) + units > monthLimit

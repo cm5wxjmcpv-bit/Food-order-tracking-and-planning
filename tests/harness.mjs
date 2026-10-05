@@ -1,3 +1,6 @@
+function assertDatePattern(pattern) {
+  if (pattern !== "yyyy-MM-dd") throw new Error("Unsupported test date pattern");
+}
 import fs from "node:fs";
 import vm from "node:vm";
 import crypto from "node:crypto";
@@ -71,6 +74,14 @@ export function harness({ bundle = process.env.MEALS_TEST_BUNDLE === "true" } = 
     },
     Utilities: {
       getUuid: () => crypto.randomUUID(),
+      formatDate: (date, timeZone, pattern) => {
+        assertDatePattern(pattern);
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+        }).formatToParts(date);
+        const get = (kind) => parts.find((part) => part.type === kind).value;
+        return `${get("year")}-${get("month")}-${get("day")}`;
+      },
       DigestAlgorithm: { SHA_256: "sha256" },
       Charset: { UTF_8: "utf8" },
       computeDigest: (_, v) =>
