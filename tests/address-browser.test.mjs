@@ -269,6 +269,40 @@ try {
       await race.close();
     },
   );
+  await check(
+    "continuous typing starts lookup early, coalesces edits and never overlaps requests",
+    async () => {
+      const typing = await page.context().newPage();
+      await typing.goto("http://127.0.0.1:4175/");
+      await typing.evaluate(() => {
+        document.body.innerHTML = '<label>Address<input id="typing-address"></label>';
+        window.typingStats = { requests: [], active: 0, maxActive: 0, configCalls: 0 };
+        MealAddresses.attach(document.querySelector("input"), async (action, p) => {
+          if (action === "addressConfig") {
+            typingStats.configCalls++;
+            return { autocomplete: true, validation: true };
+          }
+          typingStats.active++;
+          typingStats.maxActive = Math.max(typingStats.active, typingStats.maxActive);
+          typingStats.requests.push(p.address);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          typingStats.active--;
+          return { suggestions: [{ address: p.address + " suggestion" }] };
+        });
+      });
+      const field = typing.locator("input");
+      await field.pressSequentially("100 Synthetic Street", { delay: 80 });
+      const during = await typing.evaluate(() => typingStats.requests);
+      assert.ok(during.length > 0);
+      assert.notEqual(during[0], "100 Synthetic Street");
+      await typing.getByRole("button", { name: "100 Synthetic Street suggestion", exact: true }).waitFor();
+      const stats = await typing.evaluate(() => typingStats);
+      assert.equal(stats.maxActive, 1);
+      assert.equal(stats.configCalls, 1);
+      assert.ok(stats.requests.length <= 4);
+      await typing.close();
+    },
+  );
   const admin = await page.context().newPage();
   await admin.setViewportSize({ width: 1280, height: 900 });
   admin.on("pageerror", (e) => errors.push(e.message));

@@ -3201,7 +3201,7 @@ Copy only the contents of this code box into the matching Apps Script file.
 
 ## File 16: AddressClient.html
 
-SHA-256: 1a2f9aca8e2adc3a6abf256aa39508b91e54e9237204610a701ec8a07b2ccbd0
+SHA-256: 7ac23ecc931b3d9220f0a328dc07babdf8ee1537f54cb9abcd5b04e003cbefa9
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -3326,6 +3326,9 @@ window.MealAddresses = (() => {
       timer,
       session = null,
       features = null,
+      configRequest = null,
+      suggesting = false,
+      lastSuggestionAt = 0,
       receipt = "",
       checked = input.value.trim(),
       running = null;
@@ -3344,6 +3347,7 @@ window.MealAddresses = (() => {
     const reset = (s = "Needs Review") => {
       revision++;
       clearTimeout(timer);
+      timer = null;
       session = null;
       receipt = "";
       checked = input.value.trim();
@@ -3351,7 +3355,13 @@ window.MealAddresses = (() => {
       clear();
     };
     async function config() {
-      return features || (features = await call("addressConfig", {}));
+      if (features) return features;
+      if (!configRequest)
+        configRequest = call("addressConfig", {}).then(
+          (value) => (features = value),
+          (error) => { configRequest = null; throw error; },
+        );
+      return configRequest;
     }
     async function validate(candidate) {
       if (running) return running;
@@ -3360,6 +3370,7 @@ window.MealAddresses = (() => {
       if (!original) return true;
       clear();
       clearTimeout(timer);
+      timer = null;
       running = (async () => {
         let result;
         try {
@@ -3417,12 +3428,26 @@ window.MealAddresses = (() => {
         running = null;
       }
     }
+    function scheduleSuggestions() {
+      if (timer || suggesting || running || input.value.trim().length < 4 ||
+          input.disabled || !input.isConnected || document.activeElement !== input) return;
+      // Start during typing; coalesce edits and allow only one request in flight.
+      const delay = Math.max(150, 1000 - (Date.now() - lastSuggestionAt));
+      timer = setTimeout(() => {
+        timer = null;
+        suggest(revision);
+      }, delay);
+    }
     async function suggest(rev) {
       const address = input.value.trim();
-      if (address.length < 4 || input.disabled) return;
+      if (address.length < 4 || input.disabled || suggesting || running ||
+          !input.isConnected || document.activeElement !== input) return;
+      suggesting = true;
       try {
         if (!(await config()).autocomplete || rev !== revision) return;
         session ||= crypto.randomUUID();
+        lastSuggestionAt = Date.now();
+        status.textContent = "Searching addresses…";
         const data = await call("addressSuggestions", {
           ...context(),
           address,
@@ -3430,6 +3455,7 @@ window.MealAddresses = (() => {
         });
         if (
           rev !== revision ||
+          running || checked === input.value.trim() ||
           !input.isConnected ||
           document.activeElement !== input
         )
@@ -3469,16 +3495,24 @@ window.MealAddresses = (() => {
           status.textContent =
             "Suggestions unavailable. Enter the full address; it can still be submitted.";
         }
+      } finally {
+        suggesting = false;
+        if (rev !== revision) scheduleSuggestions();
+        else if (!running && status.textContent === "Searching addresses…")
+          status.textContent = "Needs Review";
       }
     }
+    input.addEventListener("focus", () => {
+      // Warm configuration before the first address-search request.
+      config().catch(() => {});
+    });
     input.addEventListener("input", () => {
       revision++;
       receipt = "";
       checked = "";
       clear();
-      clearTimeout(timer);
-      status.textContent = "Needs Review";
-      if (!running) timer = setTimeout(() => suggest(revision), 450);
+      status.textContent = suggesting ? "Searching addresses…" : "Needs Review";
+      scheduleSuggestions();
     });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Escape") clear();

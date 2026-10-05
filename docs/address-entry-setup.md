@@ -69,3 +69,7 @@ Local results: **PASS** â€” 38 backend tests against modular source; **PASS** â€
 Pending: both actual Google administrator identities after the new version; live Google suggestions/validation with properly restricted keys; actual billing/session accounting and Cloud quota settings; Apps Script cold-start/typing latency; mobile Safari/device selection and popup focus; public anonymous endpoint integration and abuse tests; privacy/terms publication. Route optimization stays disabled.
 
 Official unmodified Google Maps attribution image source: https://developers.google.com/static/maps/documentation/images/Google_Maps_Attribution_Assets.zip (Gray 1x logo, embedded so no additional browser tracking request is needed).
+
+## Suggestion responsiveness
+
+Configuration loads when the address field receives focus. Suggestions begin after a short 150 ms scheduling window instead of waiting for typing to stop. Each field sends at most one suggestion request per second, keeps only one in flight, and coalesces intervening edits into the latest query. Older responses cannot replace the latest query or a validation result. A visible Searching addresses status covers network delays. Apps Script round trips and cold starts still affect live response time; Google-direct browser autocomplete would require a separately reviewed browser-key architecture.
