@@ -245,6 +245,21 @@
           "hint",
         ),
       );
+      const recipients = el("ol", null, "request-recipient-list");
+      r.recipients.forEach((recipient) => {
+        const item = el("li");
+        item.append(
+          el("strong", recipient.RecipientName),
+          el("p", recipient.Address),
+          el("p", recipient.MealCount + (Number(recipient.MealCount) === 1 ? " meal" : " meals")),
+        );
+        if (!addressReviewed(recipient.AddressStatus))
+          item.append(el("span", "Address Needs Review", "badge"));
+        if (recipient.DuplicateFlag)
+          item.append(el("span", "Possible Duplicate", "warning"));
+        recipients.append(item);
+      });
+      card.append(recipients);
       if (r.recipients.some((x) => x.DuplicateFlag))
         card.append(
           el(

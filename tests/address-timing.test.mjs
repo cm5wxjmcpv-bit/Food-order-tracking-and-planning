@@ -29,13 +29,13 @@ function client() {
   vm.runInNewContext(fs.readFileSync('address-entry.js', 'utf8'), ctx);
   const label = new Element('label'), input = new Element('input'); label.append(input);
   const requests = [], pending = []; let configCalls = 0;
-  ctx.window.MealAddresses.attach(input, async (action, payload) => {
+  const state = ctx.window.MealAddresses.attach(input, async (action, payload) => {
     if (action === 'addressConfig') { configCalls++; return { autocomplete: true, validation: true }; }
     requests.push({ action, payload });
     return await new Promise(resolve => pending.push(resolve));
   });
   const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
-  return { input, requests, pending, document, configCalls: () => configCalls,
+  return { input, requests, pending, document, state, configCalls: () => configCalls,
     type: value => { input.value = value; input.handlers.input(); },
     flush,
     tick: async ms => {
@@ -90,4 +90,39 @@ test('a delayed suggestion cannot overwrite a completed validation badge', async
   h.pending[0]({ suggestions: [{ address: 'Late suggestion' }] }); await h.flush();
   assert.equal(status.textContent, 'Address Verified');
   assert.equal(h.list().children.length, 0);
+});
+
+
+test('choosing a suggestion fills the field immediately and does not check it again on submit', async () => {
+  const h = client(); h.input.focus(); h.type('100 Synth'); await h.tick(150);
+  h.pending.shift()({ suggestions: [{ address: '100 Synthetic Street, Example City' }] }); await h.flush();
+  let prevented = false;
+  h.list().children[0].handlers.pointerdown({ preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+  h.list().children[0].handlers.click();
+  assert.equal(h.input.value, '100 Synthetic Street, Example City');
+  await h.flush();
+  assert.equal(h.requests[1].payload.address, '100 Synthetic Street, Example City');
+  h.pending.shift()({ original: h.input.value, confident: true, equivalent: true, originalReceipt: 'synthetic-proof' });
+  await h.flush();
+  assert.equal(await h.state.prepare(), true);
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.state.receipt(), 'synthetic-proof');
+});
+
+test('selected street suggestions preserve complete entered apartment details', async () => {
+  const h = client(); h.input.focus(); h.type('100 Synthetic St Apt 4 East'); await h.tick(150);
+  h.pending.shift()({ suggestions: [{ address: '100 Synthetic Street, Example City' }] }); await h.flush();
+  h.list().children[0].handlers.click(); await h.flush();
+  assert.equal(h.input.value, '100 Synthetic Street, Example City, Apt 4 East');
+  assert.equal(h.requests[1].payload.address, h.input.value);
+});
+
+test('a suggestion with a conflicting unit cannot silently replace the entered unit', async () => {
+  const h = client(); h.input.focus(); h.type('100 Synthetic St Apt 4'); await h.tick(150);
+  h.pending.shift()({ suggestions: [{ address: '100 Synthetic St Apt 5' }] }); await h.flush();
+  h.list().children[0].handlers.click(); await h.flush();
+  assert.equal(h.input.value, '100 Synthetic St Apt 4');
+  assert.equal(h.requests[1].payload.address, '100 Synthetic St Apt 4');
+  assert.equal(h.requests[1].payload.candidate, '100 Synthetic St Apt 5');
 });

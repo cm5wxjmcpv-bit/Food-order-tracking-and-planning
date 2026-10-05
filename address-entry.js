@@ -220,6 +220,27 @@ window.MealAddresses = (() => {
         running = null;
       }
     }
+    function selectSuggestion(address) {
+      if (running) return;
+      const entered = input.value.trim();
+      const units = (value) => value.match(
+        /(?:\b(?:apartment|apt|suite|ste|unit|floor|fl|building|bldg|room|rm)\.?\s*|#\s*)[a-z0-9][a-z0-9 -]*/gi,
+      ) || [];
+      const enteredUnits = units(entered), selectedUnits = units(address);
+      const key = (parts) => parts.map(x => x.toLowerCase().replace(/\./g, "")
+        .replace(/\b(?:apartment|apt)\b/g, "apt")
+        .replace(/\b(?:suite|ste)\b/g, "suite").replace(/\s+/g, " ").trim()).sort().join("|");
+      // A conflicting unit still needs the original-versus-recommended review.
+      if (enteredUnits.length && selectedUnits.length && key(enteredUnits) !== key(selectedUnits))
+        return validate(address);
+      input.value = address + (enteredUnits.length && !selectedUnits.length
+        ? ", " + enteredUnits.join(", ") : "");
+      revision++;
+      receipt = "";
+      checked = "";
+      // Clicking a suggestion explicitly selects it. Validate that selected value now.
+      return validate();
+    }
     function scheduleSuggestions() {
       if (timer || suggesting || running || input.value.trim().length < 4 ||
           input.disabled || !input.isConnected || document.activeElement !== input) return;
@@ -257,7 +278,9 @@ window.MealAddresses = (() => {
           const b = node("button", suggestion.address);
           b.type = "button";
           b.className = "address-suggestion";
-          b.addEventListener("click", () => validate(suggestion.address));
+          // Keep Safari/touch blur from removing the button before its click.
+          b.addEventListener("pointerdown", (event) => event.preventDefault());
+          b.addEventListener("click", () => selectSuggestion(suggestion.address));
           b.addEventListener("keydown", (e) => {
             const buttons = [...list.querySelectorAll("button")],
               at = buttons.indexOf(b);

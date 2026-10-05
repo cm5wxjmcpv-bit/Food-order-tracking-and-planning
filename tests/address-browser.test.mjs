@@ -56,7 +56,7 @@ try {
     .waitFor({ state: "attached" });
   const input = page.locator('[name="address"]');
   await check(
-    "mobile autocomplete fixture, required choice, recommended address and verified badge",
+    "mobile autocomplete selection fills the address and equivalent validation skips confirmation",
     async () => {
       await input.fill("10 Synthetic");
       await page
@@ -71,13 +71,8 @@ try {
           exact: true,
         })
         .click();
-      await page
-        .getByRole("heading", { name: "Check this address", exact: true })
-        .waitFor();
-      assert.equal(await input.inputValue(), "10 Synthetic");
-      await page
-        .getByRole("button", { name: "Use Recommended", exact: true })
-        .click();
+      await page.getByText("Address Verified", { exact: true }).waitFor();
+      assert.equal(await page.locator("dialog[open]").count(), 0);
       assert.equal(
         await input.inputValue(),
         "100 Synthetic Street, Example City, VA 00000",

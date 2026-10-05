@@ -2300,7 +2300,7 @@ Copy only the contents of this code box into the matching Apps Script file.
 
 ## File 15: AdminClient.html
 
-SHA-256: 46ad7545642e3e03ad189f8c59b453e2eb776bd4acf7569df4c731650a51981f
+SHA-256: 7a6ed5dfe3e66cf134ff34fa61ebef51edd00272219341e1650ed1cd58d2cbda
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -2552,6 +2552,21 @@ Copy only the contents of this code box into the matching Apps Script file.
           "hint",
         ),
       );
+      const recipients = el("ol", null, "request-recipient-list");
+      r.recipients.forEach((recipient) => {
+        const item = el("li");
+        item.append(
+          el("strong", recipient.RecipientName),
+          el("p", recipient.Address),
+          el("p", recipient.MealCount + (Number(recipient.MealCount) === 1 ? " meal" : " meals")),
+        );
+        if (!addressReviewed(recipient.AddressStatus))
+          item.append(el("span", "Address Needs Review", "badge"));
+        if (recipient.DuplicateFlag)
+          item.append(el("span", "Possible Duplicate", "warning"));
+        recipients.append(item);
+      });
+      card.append(recipients);
       if (r.recipients.some((x) => x.DuplicateFlag))
         card.append(
           el(
@@ -3201,7 +3216,7 @@ Copy only the contents of this code box into the matching Apps Script file.
 
 ## File 16: AddressClient.html
 
-SHA-256: 7ac23ecc931b3d9220f0a328dc07babdf8ee1537f54cb9abcd5b04e003cbefa9
+SHA-256: fddaa7937ef17ffbb84d878d514ef66632d27e4b72397d6ffac6c66e253a3676
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -3428,6 +3443,27 @@ window.MealAddresses = (() => {
         running = null;
       }
     }
+    function selectSuggestion(address) {
+      if (running) return;
+      const entered = input.value.trim();
+      const units = (value) => value.match(
+        /(?:\b(?:apartment|apt|suite|ste|unit|floor|fl|building|bldg|room|rm)\.?\s*|#\s*)[a-z0-9][a-z0-9 -]*/gi,
+      ) || [];
+      const enteredUnits = units(entered), selectedUnits = units(address);
+      const key = (parts) => parts.map(x => x.toLowerCase().replace(/\./g, "")
+        .replace(/\b(?:apartment|apt)\b/g, "apt")
+        .replace(/\b(?:suite|ste)\b/g, "suite").replace(/\s+/g, " ").trim()).sort().join("|");
+      // A conflicting unit still needs the original-versus-recommended review.
+      if (enteredUnits.length && selectedUnits.length && key(enteredUnits) !== key(selectedUnits))
+        return validate(address);
+      input.value = address + (enteredUnits.length && !selectedUnits.length
+        ? ", " + enteredUnits.join(", ") : "");
+      revision++;
+      receipt = "";
+      checked = "";
+      // Clicking a suggestion explicitly selects it. Validate that selected value now.
+      return validate();
+    }
     function scheduleSuggestions() {
       if (timer || suggesting || running || input.value.trim().length < 4 ||
           input.disabled || !input.isConnected || document.activeElement !== input) return;
@@ -3465,7 +3501,9 @@ window.MealAddresses = (() => {
           const b = node("button", suggestion.address);
           b.type = "button";
           b.className = "address-suggestion";
-          b.addEventListener("click", () => validate(suggestion.address));
+          // Keep Safari/touch blur from removing the button before its click.
+          b.addEventListener("pointerdown", (event) => event.preventDefault());
+          b.addEventListener("click", () => selectSuggestion(suggestion.address));
           b.addEventListener("keydown", (e) => {
             const buttons = [...list.querySelectorAll("button")],
               at = buttons.indexOf(b);
@@ -3559,7 +3597,7 @@ window.MealAddresses = (() => {
 
 ## File 17: AdminStyles.html
 
-SHA-256: 92552397c016f7b5544b839ba969d9dcfb083754ee718c5014cc2a6dfe1ccd13
+SHA-256: eef9ffbb906ce1e5334d5b08fcadd7222a05d3b147c81c29de8329c5c73bd0c2
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -4032,6 +4070,11 @@ dialog::backdrop {
     display: none !important;
   }
 }
+
+.request-recipient-list { padding-left: 1.5rem; margin: 1rem 0; }
+.request-recipient-list li { padding: .65rem .25rem; border-bottom: 1px solid #dbe2e8; overflow-wrap: anywhere; }
+.request-recipient-list li:last-child { border-bottom: 0; }
+.request-recipient-list p { margin: .25rem 0; }
 ```
 
 ## File 18: appsscript.json

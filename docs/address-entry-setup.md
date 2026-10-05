@@ -73,3 +73,5 @@ Official unmodified Google Maps attribution image source: https://developers.goo
 ## Suggestion responsiveness
 
 Configuration loads when the address field receives focus. Suggestions begin after a short 150 ms scheduling window instead of waiting for typing to stop. Each field sends at most one suggestion request per second, keeps only one in flight, and coalesces intervening edits into the latest query. Older responses cannot replace the latest query or a validation result. A visible Searching addresses status covers network delays. Apps Script round trips and cold starts still affect live response time; Google-direct browser autocomplete would require a separately reviewed browser-key architecture.
+
+Clicking a suggestion explicitly fills the address field and validates that selected value immediately. Entered unit details are retained; conflicting units continue through explicit address review. An equivalent confident result needs no popup and is not validated again at submission. A material change or uncertain result still requires a choice.

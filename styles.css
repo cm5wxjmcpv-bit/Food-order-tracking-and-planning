@@ -466,3 +466,8 @@ dialog::backdrop {
     display: none !important;
   }
 }
+
+.request-recipient-list { padding-left: 1.5rem; margin: 1rem 0; }
+.request-recipient-list li { padding: .65rem .25rem; border-bottom: 1px solid #dbe2e8; overflow-wrap: anywhere; }
+.request-recipient-list li:last-child { border-bottom: 0; }
+.request-recipient-list p { margin: .25rem 0; }
