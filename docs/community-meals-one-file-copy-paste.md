@@ -1,3 +1,8 @@
+# Complete Code.gs replacement
+
+Copy the entire contents of this single code box into Code.gs. This includes the backend and complete admin interface. No setup or migration function should be run. Address services and routing remain disabled until separately configured.
+
+```javascript
 /* Community Meals V1 — generated from the modular files in this commit.
    Install the ENTIRE file as Code.gs. No other .gs/.html files required.
    Address services and route optimization default to disabled.
@@ -1834,3 +1839,5 @@ function adminCall(action, p) {
     });
   });
 }
+
+```

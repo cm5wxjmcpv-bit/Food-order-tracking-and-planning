@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import vm from "node:vm";
-const files = fs.readdirSync("apps-script").filter((f) => f.endsWith(".gs"));
+const files = fs
+  .readdirSync("apps-script")
+  .filter((f) => f.endsWith(".gs") && f !== "CommunityMeals-OneFile.gs");
 for (const f of files)
   new vm.Script(fs.readFileSync("apps-script/" + f, "utf8"), { filename: f });
 new vm.Script(fs.readFileSync("apps-script/AdminClient.html", "utf8"), {
   filename: "AdminClient",
 });
-for (const f of ["app.js", "admin.js", "config.js"])
+for (const f of ["app.js", "address-entry.js", "admin.js", "config.js"])
   new vm.Script(fs.readFileSync(f, "utf8"), { filename: f });
 JSON.parse(fs.readFileSync("apps-script/appsscript.json", "utf8"));
 const install = fs.readFileSync("docs/apps-script-installation.md", "utf8");
@@ -14,6 +16,7 @@ for (const f of [
   ...files,
   "Admin.html",
   "AdminClient.html",
+  "AddressClient.html",
   "AdminStyles.html",
   "appsscript.json",
 ]) {
@@ -39,3 +42,10 @@ if (/ADMIN_PASSWORD|ADMIN_USERNAME|mealAdminLoggedIn|AIza[\w-]+/.test(front))
 console.log(
   "Syntax, manifest, shared styles and frontend credential checks passed.",
 );
+
+if (
+  fs.readFileSync("address-entry.js", "utf8") !==
+  fs.readFileSync("apps-script/AddressClient.html", "utf8")
+)
+  throw new Error("Shared address client differs");
+new vm.Script(fs.readFileSync("apps-script/CommunityMeals-OneFile.gs", "utf8"));

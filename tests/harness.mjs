@@ -2,7 +2,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import crypto from "node:crypto";
 import path from "node:path";
-export function harness() {
+export function harness({ bundle = process.env.MEALS_TEST_BUNDLE === "true" } = {}) {
   let id = 0,
     locked = false,
     failNext = false;
@@ -77,7 +77,25 @@ export function harness() {
         [...crypto.createHash("sha256").update(v).digest()].map((n) =>
           n > 127 ? n - 256 : n,
         ),
-      newBlob: (s) => ({ getBytes: () => [...Buffer.from(s)] }),
+      computeHmacSha256Signature: (s, key) => [
+        ...crypto.createHmac("sha256", key).update(s).digest(),
+      ],
+      base64EncodeWebSafe: (s) =>
+        Buffer.from(
+          typeof s === "string"
+            ? s
+            : new Uint8Array(s.map((x) => (x + 256) % 256)),
+        ).toString("base64url"),
+      base64DecodeWebSafe: (s) => [...Buffer.from(s, "base64url")],
+      newBlob: (s) => ({
+        getBytes: () => [...Buffer.from(s)],
+        getDataAsString: () =>
+          Buffer.from(
+            typeof s === "string"
+              ? s
+              : new Uint8Array(s.map((x) => (x + 256) % 256)),
+          ).toString(),
+      }),
     },
     SpreadsheetApp: { openById: () => db },
     LockService: {
@@ -162,11 +180,12 @@ export function harness() {
     "Referrals",
     "Reports",
     "Addresses",
+    "AddressEntry",
     "Routing",
     "Schema",
     "Code",
   ];
-  for (const f of files)
+  for (const f of bundle ? ["CommunityMeals-OneFile"] : files)
     vm.runInContext(
       fs.readFileSync(path.resolve("apps-script", f + ".gs"), "utf8"),
       ctx,

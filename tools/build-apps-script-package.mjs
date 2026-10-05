@@ -12,10 +12,12 @@ const files = [
   "Duplicates.gs",
   "Reports.gs",
   "Addresses.gs",
+  "AddressEntry.gs",
   "Routing.gs",
   "Schema.gs",
   "Admin.html",
   "AdminClient.html",
+  "AddressClient.html",
   "AdminStyles.html",
   "appsscript.json",
 ];
@@ -27,7 +29,7 @@ const blocks = files.map((name, i) => {
     ? "javascript"
     : name.endsWith(".json")
       ? "json"
-      : name === "AdminClient.html"
+      : ["AdminClient.html", "AddressClient.html"].includes(name)
         ? "javascript"
         : name === "AdminStyles.html"
           ? "css"
@@ -39,5 +41,5 @@ fs.writeFileSync(
   guide + "\n\n# Complete file contents\n\n" + blocks.join("\n"),
 );
 console.log(
-  "Generated complete installation package from 16 exact source files.",
+  `Generated complete installation package from ${files.length} exact source files.`,
 );

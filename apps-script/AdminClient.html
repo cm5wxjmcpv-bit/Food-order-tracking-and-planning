@@ -23,6 +23,15 @@
     b.addEventListener("click", fn);
     return b;
   };
+  const addressCall = (action, p) => rpc(action, p);
+  const pickupSettings = MealAddresses.attach(
+    $("settingsForm").elements.startAddress,
+    addressCall,
+  );
+  const pickupCreate = MealAddresses.attach(
+    $("eventEditor").elements.startAddress,
+    addressCall,
+  );
   const addressReviewed = (status) =>
     ["Confirmed", "Manually Reviewed"].includes(status);
   const readonly = () =>
@@ -350,6 +359,13 @@
       ),
     );
     card.append(grid);
+    if (!viewOnly)
+      MealAddresses.attach(
+        grid.querySelector('[name="address"]'),
+        addressCall,
+        () => ({}),
+        r?.AddressStatus,
+      );
     if (r) {
       card.append(
         el(
@@ -405,23 +421,6 @@
             "secondary",
           ),
         );
-        if (route.mapsEnabled)
-          card.append(
-            button(
-              "Validate Saved Address",
-              () =>
-                task(async () => {
-                  await rpc("verifyAddress", {
-                    recipientId: r.RecipientID,
-                    version: r.Version,
-                    entity: "recipient",
-                  });
-                  $("referralDialog").close();
-                  await refresh();
-                }),
-              "secondary",
-            ),
-          );
       }
     } else {
       card.append(
@@ -483,6 +482,9 @@
           n.name,
           n.name === "mealCount" ? Number(n.value) : n.value.trim(),
         ]),
+      );
+      x.addressReceipt = MealAddresses.receipt(
+        c.querySelector('[name="address"]'),
       );
       if (editing) {
         x.recipientId = c.dataset.recipientId;
@@ -624,7 +626,8 @@
     Object.entries(values).forEach(
       ([k, v]) => ($("settingsForm").elements[k].value = v),
     );
-    $("verifyPickup").disabled = readonly() || !route.mapsEnabled;
+    $("verifyPickup").disabled = readonly();
+    pickupSettings.reset(e.StartAddressStatus);
     $("manualPickup").disabled = readonly();
     $("pickupStatus").textContent = addressReviewed(e.StartAddressStatus)
       ? e.StartAddressStatus === "Manually Reviewed"
@@ -633,16 +636,19 @@
       : "Pickup Address Needs Review";
   }
   function eventPayload(f) {
-    return Object.fromEntries(
-      ["eventName", "deliveryDate", "capacity", "startAddress", "status"].map(
-        (n) => [
-          n,
-          n === "capacity"
-            ? Number(f.elements[n].value)
-            : f.elements[n].value.trim(),
-        ],
+    return {
+      addressReceipt: MealAddresses.receipt(f.elements.startAddress),
+      ...Object.fromEntries(
+        ["eventName", "deliveryDate", "capacity", "startAddress", "status"].map(
+          (n) => [
+            n,
+            n === "capacity"
+              ? Number(f.elements[n].value)
+              : f.elements[n].value.trim(),
+          ],
+        ),
       ),
-    );
+    };
   }
   async function reports() {
     const old = $("reportEvent").value,
@@ -723,6 +729,7 @@
   );
   $("createEvent").addEventListener("click", () => {
     $("eventEditor").reset();
+    pickupCreate.reset();
     $("eventEditorMessage").textContent = "";
     $("eventDialog").showModal();
   });
@@ -755,6 +762,7 @@
     e.preventDefault();
     if (busy) return;
     task(async () => {
+      if (!(await MealAddresses.prepareAll($("referralEditor")))) return;
       const payload = editorPayload();
       try {
         await rpc(editing ? "editReferral" : "createReferral", payload);
@@ -770,6 +778,7 @@
     e.preventDefault();
     task(async () => {
       try {
+        if (!(await MealAddresses.prepareAll($("eventEditor")))) return;
         const event = await rpc("saveEvent", eventPayload($("eventEditor")));
         $("eventDialog").close();
         await refreshEvents(event.EventID);
@@ -783,6 +792,7 @@
     e.preventDefault();
     task(async () => {
       const d = dashboard.event;
+      if (!(await MealAddresses.prepareAll($("settingsForm")))) return;
       await rpc("saveEvent", {
         ...eventPayload($("settingsForm")),
         eventId: d.EventID,
@@ -845,14 +855,7 @@
     });
   });
   $("verifyPickup").addEventListener("click", () =>
-    task(async () => {
-      await rpc("verifyAddress", {
-        entity: "event",
-        eventId: dashboard.event.EventID,
-        version: dashboard.event.Version,
-      });
-      await refresh();
-    }),
+    task(() => pickupSettings.check()),
   );
   $("optimizeRoute").addEventListener("click", () =>
     task(async () => {

@@ -107,8 +107,9 @@ function mapsUsage_(kind, units) {
     if (daily.date !== date) daily = { date, validation: 0, optimization: 0 };
     if (monthly.month !== month)
       monthly = { month, validation: 0, optimization: 0 };
-    const dailyLimit = kind === "validation" ? 300 : 500,
-      monthLimit = 3000;
+    const dailyLimit =
+        kind === "autocomplete" ? 1500 : kind === "validation" ? 300 : 500,
+      monthLimit = kind === "autocomplete" ? 10000 : 3000;
     if (
       (daily[kind] || 0) + units > dailyLimit ||
       (monthly[kind] || 0) + units > monthLimit
@@ -117,6 +118,25 @@ function mapsUsage_(kind, units) {
         "API_QUOTA",
         "The configured Maps usage limit has been reached. No additional API call was made.",
       );
+    if (kind !== "optimization") {
+      const minuteKey = Math.floor(Date.now() / 60000);
+      let minute;
+      try {
+        minute = JSON.parse(
+          p.getProperty("MEALS_ADDRESS_USAGE_MINUTE") || "{}",
+        );
+      } catch (_) {
+        fail_("CONFIG", "Address usage counters need administrator review.");
+      }
+      if (minute.time !== minuteKey) minute = { time: minuteKey };
+      if ((minute[kind] || 0) + units > (kind === "autocomplete" ? 60 : 20))
+        fail_(
+          "API_QUOTA",
+          "Address checking is busy. Keep the address or try again shortly.",
+        );
+      minute[kind] = (minute[kind] || 0) + units;
+      p.setProperty("MEALS_ADDRESS_USAGE_MINUTE", JSON.stringify(minute));
+    }
     daily[kind] = (daily[kind] || 0) + units;
     monthly[kind] = (monthly[kind] || 0) + units;
     p.setProperty("MEALS_MAPS_USAGE_DAY", JSON.stringify(daily));

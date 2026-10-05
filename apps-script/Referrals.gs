@@ -53,7 +53,7 @@ function submit_(p, adminEmail) {
       Version: 1,
     });
     s.REFERRALS.push(referral);
-    canonical.recipients.forEach((r) =>
+    canonical.recipients.forEach((r, i) =>
       s.RECIPIENTS.push(
         Object.assign(r, {
           RecipientID: uuid_(),
@@ -64,8 +64,15 @@ function submit_(p, adminEmail) {
           CreatedAt: now_(),
           UpdatedAt: now_(),
           Version: 1,
-          AddressStatus: "Needs Review",
-          VerifiedAt: "",
+          AddressStatus: addressProofStatus_(
+            r.Address,
+            p.recipients[i].addressReceipt,
+          ),
+          VerifiedAt:
+            addressProofStatus_(r.Address, p.recipients[i].addressReceipt) ===
+            "Confirmed"
+              ? now_()
+              : "",
         }),
       ),
     );
@@ -192,6 +199,13 @@ function editReferral_(s, p, admin) {
     if (old.Address !== x.Address) {
       old.AddressStatus = "Needs Review";
       old.VerifiedAt = "";
+    }
+    if (p.recipients[i].addressReceipt) {
+      old.AddressStatus = addressProofStatus_(
+        x.Address,
+        p.recipients[i].addressReceipt,
+      );
+      old.VerifiedAt = old.AddressStatus === "Confirmed" ? now_() : "";
     }
     Object.assign(old, x);
     touch_(old);

@@ -133,7 +133,7 @@ Installation is a manual action by the user. No script source was uploaded or we
 
 ## File 1: Code.gs
 
-SHA-256: a7177156e673ba75cbff070d7edbb2a1e1b379977a2102c4615f15dfa215a94e
+SHA-256: 0d992405e633e65d63d17d8579147ee6d5d25a99e8d1356a4fc8b27a11cf3122
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -181,6 +181,13 @@ function doPost(e) {
       } catch (_) {
         fail_("INVALID", "The request could not be read.");
       }
+      if (
+        p &&
+        ["addressConfig", "addressSuggestions", "addressPreview"].includes(
+          p.action,
+        )
+      )
+        return publicAddressCall_(p.action, p);
       if (!p || p.action !== "submit")
         fail_("FORBIDDEN", "This public operation is unavailable.");
       return submit_(p, null);
@@ -201,6 +208,9 @@ function adminCall(action, p) {
       Utilities.newBlob(JSON.stringify(p)).getBytes().length > MEAL_LIMITS.bytes
     )
       fail_("INVALID", "The request is too large.");
+    if (action === "addressConfig") return addressFeatures_();
+    if (action === "addressSuggestions") return addressSuggestions_(p);
+    if (action === "addressPreview") return addressPreview_(p);
     if (action === "identity")
       return {
         email: auth.email,
@@ -725,7 +735,7 @@ function audit_(s, admin, action, type, id, oldValue, newValue) {
 
 ## File 6: Events.gs
 
-SHA-256: 4454cdffa76d5efa2f46ea204178ddd75a7862969d8499a071f126548353853a
+SHA-256: c71e3469ffdee5d5c82e874c0a37a81d1293a275d8d8e498ce6292097479f747
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -783,7 +793,10 @@ function eventWrite_(s, p, admin) {
       Version: 1,
       RouteVersion: 1,
       RouteNeedsReview: true,
-      StartAddressStatus: "Needs Review",
+      StartAddressStatus: addressProofStatus_(
+        input.StartAddress,
+        p.addressReceipt,
+      ),
     });
     s.EVENTS.push(e);
     audit_(s, admin, "Event Created", "Event", e.EventID, null, input);
@@ -809,6 +822,13 @@ function eventWrite_(s, p, admin) {
   };
   if (input.StartAddress !== e.StartAddress) {
     e.StartAddressStatus = "Needs Review";
+    routeDirty_(e);
+  }
+  if (p.addressReceipt) {
+    e.StartAddressStatus = addressProofStatus_(
+      input.StartAddress,
+      p.addressReceipt,
+    );
     routeDirty_(e);
   }
   Object.assign(e, input);
@@ -865,7 +885,7 @@ function publicEvents_() {
 
 ## File 7: Referrals.gs
 
-SHA-256: fa57f36b1d51e57c95d545bc6531c5958784c5e0fdbb5e30cb6ddbd499dd76f3
+SHA-256: e4e60a17d08ee04e3ae0e428aafad73b1849b87798ff395e4bb7c16287be776e
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -925,7 +945,7 @@ function submit_(p, adminEmail) {
       Version: 1,
     });
     s.REFERRALS.push(referral);
-    canonical.recipients.forEach((r) =>
+    canonical.recipients.forEach((r, i) =>
       s.RECIPIENTS.push(
         Object.assign(r, {
           RecipientID: uuid_(),
@@ -936,8 +956,15 @@ function submit_(p, adminEmail) {
           CreatedAt: now_(),
           UpdatedAt: now_(),
           Version: 1,
-          AddressStatus: "Needs Review",
-          VerifiedAt: "",
+          AddressStatus: addressProofStatus_(
+            r.Address,
+            p.recipients[i].addressReceipt,
+          ),
+          VerifiedAt:
+            addressProofStatus_(r.Address, p.recipients[i].addressReceipt) ===
+            "Confirmed"
+              ? now_()
+              : "",
         }),
       ),
     );
@@ -1064,6 +1091,13 @@ function editReferral_(s, p, admin) {
     if (old.Address !== x.Address) {
       old.AddressStatus = "Needs Review";
       old.VerifiedAt = "";
+    }
+    if (p.recipients[i].addressReceipt) {
+      old.AddressStatus = addressProofStatus_(
+        x.Address,
+        p.recipients[i].addressReceipt,
+      );
+      old.VerifiedAt = old.AddressStatus === "Confirmed" ? now_() : "";
     }
     Object.assign(old, x);
     touch_(old);
@@ -1222,7 +1256,7 @@ function dashboard_(s, p) {
 
 ## File 10: Addresses.gs
 
-SHA-256: 246275a44524f666ceecd10c716b8691bc4589b8503a95716aa3f3aaddfc35d0
+SHA-256: 996fbb2a4b8416cd4c7d847579825432a375bb0b44a5a4ee87610609abf3595d
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -1336,8 +1370,9 @@ function mapsUsage_(kind, units) {
     if (daily.date !== date) daily = { date, validation: 0, optimization: 0 };
     if (monthly.month !== month)
       monthly = { month, validation: 0, optimization: 0 };
-    const dailyLimit = kind === "validation" ? 300 : 500,
-      monthLimit = 3000;
+    const dailyLimit =
+        kind === "autocomplete" ? 1500 : kind === "validation" ? 300 : 500,
+      monthLimit = kind === "autocomplete" ? 10000 : 3000;
     if (
       (daily[kind] || 0) + units > dailyLimit ||
       (monthly[kind] || 0) + units > monthLimit
@@ -1346,6 +1381,25 @@ function mapsUsage_(kind, units) {
         "API_QUOTA",
         "The configured Maps usage limit has been reached. No additional API call was made.",
       );
+    if (kind !== "optimization") {
+      const minuteKey = Math.floor(Date.now() / 60000);
+      let minute;
+      try {
+        minute = JSON.parse(
+          p.getProperty("MEALS_ADDRESS_USAGE_MINUTE") || "{}",
+        );
+      } catch (_) {
+        fail_("CONFIG", "Address usage counters need administrator review.");
+      }
+      if (minute.time !== minuteKey) minute = { time: minuteKey };
+      if ((minute[kind] || 0) + units > (kind === "autocomplete" ? 60 : 20))
+        fail_(
+          "API_QUOTA",
+          "Address checking is busy. Keep the address or try again shortly.",
+        );
+      minute[kind] = (minute[kind] || 0) + units;
+      p.setProperty("MEALS_ADDRESS_USAGE_MINUTE", JSON.stringify(minute));
+    }
     daily[kind] = (daily[kind] || 0) + units;
     monthly[kind] = (monthly[kind] || 0) + units;
     p.setProperty("MEALS_MAPS_USAGE_DAY", JSON.stringify(daily));
@@ -1401,7 +1455,255 @@ function manualAddressReview_(s, p, admin) {
 }
 ```
 
-## File 11: Routing.gs
+## File 11: AddressEntry.gs
+
+SHA-256: 6e1e89907fabbb630b92413ad9efab7ba54ed771fcbbab088d3f20691e18f625
+
+Copy only the contents of this code box into the matching Apps Script file.
+
+```javascript
+// Places API (New), separate from the route optimization feature flag.
+function addressFeatures_() {
+  const p = properties_();
+  return {
+    autocomplete:
+      p.getProperty("MEALS_ADDRESS_AUTOCOMPLETE_ENABLED") === "true",
+    validation: p.getProperty("MEALS_ADDRESS_VALIDATION_ENABLED") === "true",
+  };
+}
+function addressSession_(p) {
+  const token = text_(p.sessionToken, "address session", 36, false);
+  if (token && !/^[a-zA-Z0-9_-]{1,36}$/.test(token))
+    fail_("INVALID", "Please restart the address search.");
+  return token;
+}
+function addressServiceRequest_(url, key, payload, mask) {
+  if (!key) fail_("CONFIG", "Address services are not configured.");
+  const headers = { "X-Goog-Api-Key": key };
+  if (mask) headers["X-Goog-FieldMask"] = mask;
+  const res = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    headers,
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200)
+    fail_(
+      "ADDRESS_UNAVAILABLE",
+      "Address checking is unavailable. You can keep the address for administrator review.",
+    );
+  return JSON.parse(res.getContentText());
+}
+function addressSuggestions_(p) {
+  if (!addressFeatures_().autocomplete)
+    fail_("API_DISABLED", "Address suggestions are currently disabled.");
+  const input = text_(p.address, "address", 500, true);
+  if (input.length < 4) return { suggestions: [] };
+  const token = addressSession_(p);
+  if (!token) fail_("INVALID", "An address session is required.");
+  mapsUsage_("autocomplete", 1);
+  const result = addressServiceRequest_(
+    "https://places.googleapis.com/v1/places:autocomplete",
+    properties_().getProperty("MEALS_PLACES_API_KEY"),
+    {
+      input,
+      sessionToken: token,
+      includedRegionCodes: ["us"],
+      languageCode: "en",
+      includeQueryPredictions: false,
+    },
+    "suggestions.placePrediction.text.text,suggestions.placePrediction.placeId",
+  );
+  return {
+    suggestions: (result.suggestions || [])
+      .slice(0, 5)
+      .filter((x) => x.placePrediction && x.placePrediction.text)
+      .map((x) => ({
+        address: text_(x.placePrediction.text.text, "suggestion", 500, true),
+      })),
+  };
+}
+function addressUnits_(address) {
+  return (
+    String(address).match(
+      /(?:\b(?:apartment|apt|suite|ste|unit|floor|fl|building|bldg|room|rm)\.?\s*|#\s*)[a-z0-9][a-z0-9 -]*/gi,
+    ) || []
+  )
+    .map((x) => addressKey_(x).replace(/\bste\b/g, "unit"))
+    .sort();
+}
+function sameAddress_(a, b) {
+  const clean = (x) =>
+    addressKey_(x)
+      .replace(/\b(?:usa|united states)\b/g, "")
+      .trim()
+      .replace(/\s+/g, " ");
+  return clean(a) === clean(b);
+}
+function preserveAddressUnits_(original, recommended) {
+  // Conservative: a missing or changed unit is never accepted silently.
+  const units = addressUnits_(original),
+    next = addressUnits_(recommended);
+  const changed =
+    units.length > 0 && JSON.stringify(units) !== JSON.stringify(next);
+  if (!changed) return { address: recommended, unitIssue: false };
+  const parts =
+    String(original).match(
+      /(?:\b(?:apartment|apt|suite|ste|unit|floor|fl|building|bldg|room|rm)\.?\s*|#\s*)[a-z0-9][a-z0-9 -]*/gi,
+    ) || [];
+  // Conflicting units: retain the original address rather than inventing a combination.
+  return {
+    address: next.length ? original : recommended + ", " + parts.join(", "),
+    unitIssue: true,
+  };
+}
+function addressReceipt_(address, status) {
+  const props = properties_();
+  let secret = props.getProperty("MEALS_ADDRESS_RECEIPT_SECRET");
+  if (!secret) {
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000))
+      fail_("BUSY", "Please try the address check again.");
+    try {
+      secret = props.getProperty("MEALS_ADDRESS_RECEIPT_SECRET");
+      if (!secret) {
+        secret = uuid_() + uuid_();
+        props.setProperty("MEALS_ADDRESS_RECEIPT_SECRET", secret);
+      }
+    } finally {
+      lock.releaseLock();
+    }
+  }
+  // Only a hash is returned, never a name or an address inside this receipt.
+  const body = Utilities.base64EncodeWebSafe(
+    JSON.stringify({
+      hash: fingerprint_(address),
+      status,
+      expires: Date.now() + 7200000,
+    }),
+  );
+  const sig = Utilities.base64EncodeWebSafe(
+    Utilities.computeHmacSha256Signature(body, secret),
+  );
+  return body + "." + sig;
+}
+function addressProofStatus_(address, receipt) {
+  if (typeof receipt !== "string" || receipt.length > 1000)
+    return "Needs Review";
+  const secret = properties_().getProperty("MEALS_ADDRESS_RECEIPT_SECRET");
+  if (!secret) return "Needs Review";
+  try {
+    const parts = receipt.split(".");
+    if (parts.length !== 2) return "Needs Review";
+    const expected = Utilities.base64EncodeWebSafe(
+      Utilities.computeHmacSha256Signature(parts[0], secret),
+    );
+    let diff = expected.length ^ parts[1].length;
+    for (let i = 0; i < expected.length; i++)
+      diff |= expected.charCodeAt(i) ^ (parts[1].charCodeAt(i) || 0);
+    if (diff) return "Needs Review";
+    const data = JSON.parse(
+      Utilities.newBlob(
+        Utilities.base64DecodeWebSafe(parts[0]),
+      ).getDataAsString(),
+    );
+    return data.hash === fingerprint_(address) &&
+      data.expires > Date.now() &&
+      data.status === "Confirmed"
+      ? "Confirmed"
+      : "Needs Review";
+  } catch (_) {
+    return "Needs Review";
+  }
+}
+function addressPreview_(p) {
+  if (!addressFeatures_().validation)
+    fail_(
+      "API_DISABLED",
+      "Address validation is currently disabled. You can keep the address for administrator review.",
+    );
+  const original = text_(p.address, "address", 500, true);
+  const candidate = text_(
+    p.candidate || original,
+    "selected address",
+    500,
+    true,
+  );
+  const before = preserveAddressUnits_(original, candidate);
+  const body = {
+    address: { regionCode: "US", addressLines: [before.address] },
+  };
+  const token = addressSession_(p);
+  if (token) body.sessionToken = token;
+  mapsUsage_("validation", 1);
+  const response = addressServiceRequest_(
+    "https://addressvalidation.googleapis.com/v1:validateAddress",
+    properties_().getProperty("MEALS_ADDRESS_API_KEY"),
+    body,
+  );
+  const result = response.result || {},
+    v = result.verdict || {},
+    a = result.address || {};
+  const safe = preserveAddressUnits_(
+    original,
+    text_(
+      a.formattedAddress || before.address,
+      "recommended address",
+      500,
+      true,
+    ),
+  );
+  const unitIssue =
+    safe.unitIssue ||
+    (before.unitIssue && addressUnits_(safe.address).length === 0);
+  const confident =
+    v.addressComplete === true &&
+    !v.hasUnconfirmedComponents &&
+    ["PREMISE", "SUB_PREMISE"].includes(v.validationGranularity) &&
+    !(a.missingComponentTypes || []).length &&
+    !(a.unresolvedTokens || []).length &&
+    !(a.addressComponents || []).some(
+      (c) =>
+        c.unexpected || c.confirmationLevel === "UNCONFIRMED_AND_SUSPICIOUS",
+    ) &&
+    !unitIssue &&
+    (!addressUnits_(original).length ||
+      v.validationGranularity === "SUB_PREMISE");
+  const equivalent =
+    sameAddress_(original, safe.address) &&
+    !v.hasReplacedComponents &&
+    !v.hasInferredComponents;
+  return {
+    original,
+    recommended: safe.address,
+    confident,
+    equivalent,
+    unitIssue,
+    originalReceipt: addressReceipt_(
+      original,
+      confident && equivalent ? "Confirmed" : "Needs Review",
+    ),
+    recommendedReceipt: addressReceipt_(
+      safe.address,
+      confident ? "Confirmed" : "Needs Review",
+    ),
+  };
+}
+function publicAddressCall_(action, p) {
+  if (action === "addressConfig") return addressFeatures_();
+  // Public callers cannot use this interface to read saved addresses or recipients.
+  const s = load_(),
+    e = byId_(s, "EVENTS", id_(p.eventId));
+  if (e.Status !== "Open" || e.Archived === true || available_(s, e) <= 0)
+    fail_("CLOSED", "This event is no longer accepting requests.");
+  if (action === "addressSuggestions") return addressSuggestions_(p);
+  if (action === "addressPreview") return addressPreview_(p);
+  fail_("FORBIDDEN", "This public operation is unavailable.");
+}
+```
+
+## File 12: Routing.gs
 
 SHA-256: 3e0209cd465e75742575b1e09f95eff509ce2e36e23f33f0c9c9170bb3746360
 
@@ -1604,7 +1906,7 @@ function optimize_(p) {
 }
 ```
 
-## File 12: Schema.gs
+## File 13: Schema.gs
 
 SHA-256: 624ea09cd51a93d3b4f61df727c52b7ba63402b8b8c25d0979e3b700ce5c6c7f
 
@@ -1752,9 +2054,9 @@ function legacyMigrationPlan_() {
 }
 ```
 
-## File 13: Admin.html
+## File 14: Admin.html
 
-SHA-256: f0ae4b6a2a14fc69393c9dd952902604ded2976dc45ab5e28cb9be7088837048
+SHA-256: 7e882689a9c438808f89e897aa6cd6d5cebc97b9f425179d409b6cb1b481b81c
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -1987,15 +2289,16 @@ Copy only the contents of this code box into the matching Apps Script file.
       <p id="eventEditorMessage" role="status"></p>
     </dialog>
     <script>
+      <?!= include_('AddressClient'); ?>
       <?!= include_('AdminClient'); ?>
     </script>
   </body>
 </html>
 ```
 
-## File 14: AdminClient.html
+## File 15: AdminClient.html
 
-SHA-256: d976c2127f8d2c01e735c1dd31a42fe9a616f69379e1d8422552c71109e6722e
+SHA-256: 46ad7545642e3e03ad189f8c59b453e2eb776bd4acf7569df4c731650a51981f
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -2025,6 +2328,15 @@ Copy only the contents of this code box into the matching Apps Script file.
     b.addEventListener("click", fn);
     return b;
   };
+  const addressCall = (action, p) => rpc(action, p);
+  const pickupSettings = MealAddresses.attach(
+    $("settingsForm").elements.startAddress,
+    addressCall,
+  );
+  const pickupCreate = MealAddresses.attach(
+    $("eventEditor").elements.startAddress,
+    addressCall,
+  );
   const addressReviewed = (status) =>
     ["Confirmed", "Manually Reviewed"].includes(status);
   const readonly = () =>
@@ -2352,6 +2664,13 @@ Copy only the contents of this code box into the matching Apps Script file.
       ),
     );
     card.append(grid);
+    if (!viewOnly)
+      MealAddresses.attach(
+        grid.querySelector('[name="address"]'),
+        addressCall,
+        () => ({}),
+        r?.AddressStatus,
+      );
     if (r) {
       card.append(
         el(
@@ -2407,23 +2726,6 @@ Copy only the contents of this code box into the matching Apps Script file.
             "secondary",
           ),
         );
-        if (route.mapsEnabled)
-          card.append(
-            button(
-              "Validate Saved Address",
-              () =>
-                task(async () => {
-                  await rpc("verifyAddress", {
-                    recipientId: r.RecipientID,
-                    version: r.Version,
-                    entity: "recipient",
-                  });
-                  $("referralDialog").close();
-                  await refresh();
-                }),
-              "secondary",
-            ),
-          );
       }
     } else {
       card.append(
@@ -2485,6 +2787,9 @@ Copy only the contents of this code box into the matching Apps Script file.
           n.name,
           n.name === "mealCount" ? Number(n.value) : n.value.trim(),
         ]),
+      );
+      x.addressReceipt = MealAddresses.receipt(
+        c.querySelector('[name="address"]'),
       );
       if (editing) {
         x.recipientId = c.dataset.recipientId;
@@ -2626,7 +2931,8 @@ Copy only the contents of this code box into the matching Apps Script file.
     Object.entries(values).forEach(
       ([k, v]) => ($("settingsForm").elements[k].value = v),
     );
-    $("verifyPickup").disabled = readonly() || !route.mapsEnabled;
+    $("verifyPickup").disabled = readonly();
+    pickupSettings.reset(e.StartAddressStatus);
     $("manualPickup").disabled = readonly();
     $("pickupStatus").textContent = addressReviewed(e.StartAddressStatus)
       ? e.StartAddressStatus === "Manually Reviewed"
@@ -2635,16 +2941,19 @@ Copy only the contents of this code box into the matching Apps Script file.
       : "Pickup Address Needs Review";
   }
   function eventPayload(f) {
-    return Object.fromEntries(
-      ["eventName", "deliveryDate", "capacity", "startAddress", "status"].map(
-        (n) => [
-          n,
-          n === "capacity"
-            ? Number(f.elements[n].value)
-            : f.elements[n].value.trim(),
-        ],
+    return {
+      addressReceipt: MealAddresses.receipt(f.elements.startAddress),
+      ...Object.fromEntries(
+        ["eventName", "deliveryDate", "capacity", "startAddress", "status"].map(
+          (n) => [
+            n,
+            n === "capacity"
+              ? Number(f.elements[n].value)
+              : f.elements[n].value.trim(),
+          ],
+        ),
       ),
-    );
+    };
   }
   async function reports() {
     const old = $("reportEvent").value,
@@ -2725,6 +3034,7 @@ Copy only the contents of this code box into the matching Apps Script file.
   );
   $("createEvent").addEventListener("click", () => {
     $("eventEditor").reset();
+    pickupCreate.reset();
     $("eventEditorMessage").textContent = "";
     $("eventDialog").showModal();
   });
@@ -2757,6 +3067,7 @@ Copy only the contents of this code box into the matching Apps Script file.
     e.preventDefault();
     if (busy) return;
     task(async () => {
+      if (!(await MealAddresses.prepareAll($("referralEditor")))) return;
       const payload = editorPayload();
       try {
         await rpc(editing ? "editReferral" : "createReferral", payload);
@@ -2772,6 +3083,7 @@ Copy only the contents of this code box into the matching Apps Script file.
     e.preventDefault();
     task(async () => {
       try {
+        if (!(await MealAddresses.prepareAll($("eventEditor")))) return;
         const event = await rpc("saveEvent", eventPayload($("eventEditor")));
         $("eventDialog").close();
         await refreshEvents(event.EventID);
@@ -2785,6 +3097,7 @@ Copy only the contents of this code box into the matching Apps Script file.
     e.preventDefault();
     task(async () => {
       const d = dashboard.event;
+      if (!(await MealAddresses.prepareAll($("settingsForm")))) return;
       await rpc("saveEvent", {
         ...eventPayload($("settingsForm")),
         eventId: d.EventID,
@@ -2847,14 +3160,7 @@ Copy only the contents of this code box into the matching Apps Script file.
     });
   });
   $("verifyPickup").addEventListener("click", () =>
-    task(async () => {
-      await rpc("verifyAddress", {
-        entity: "event",
-        eventId: dashboard.event.EventID,
-        version: dashboard.event.Version,
-      });
-      await refresh();
-    }),
+    task(() => pickupSettings.check()),
   );
   $("optimizeRoute").addEventListener("click", () =>
     task(async () => {
@@ -2891,9 +3197,333 @@ Copy only the contents of this code box into the matching Apps Script file.
 })();
 ```
 
-## File 15: AdminStyles.html
+## File 16: AddressClient.html
 
-SHA-256: e42d6877b72b9076e294f42dc77cd98eb0000d31d0e4273e97aff82ce878681e
+SHA-256: 1a2f9aca8e2adc3a6abf256aa39508b91e54e9237204610a701ec8a07b2ccbd0
+
+Copy only the contents of this code box into the matching Apps Script file.
+
+```javascript
+/* Shared public/admin address controls. Address data and receipts stay in memory. */
+"use strict";
+window.MealAddresses = (() => {
+  const states = new WeakMap();
+  let counter = 0;
+  const node = (tag, text) => {
+    const n = document.createElement(tag);
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  function choose(result) {
+    return new Promise((resolve) => {
+      const d = node("dialog"),
+        heading = node("h2", "Check this address");
+      d.className = "address-check";
+      heading.id = "address-check-" + ++counter;
+      d.setAttribute("aria-labelledby", heading.id);
+      d.append(
+        heading,
+        node(
+          "p",
+          result.confident
+            ? "Please confirm the address for delivery."
+            : "This address could not be confidently confirmed. You may edit it or keep it for administrator review.",
+        ),
+      );
+      if (result.unitIssue)
+        d.append(
+          node(
+            "p",
+            "Apartment / suite / unit information needs review. Your entered unit has been preserved.",
+          ),
+        );
+      d.append(node("h3", "You entered:"), node("p", result.original));
+      if (result.recommended)
+        d.append(
+          node("h3", "Recommended:"),
+          node("p", result.recommended),
+          attribution(),
+        );
+      const actions = node("div");
+      actions.className = "actions";
+      const finish = (value) => {
+        d.close();
+        d.remove();
+        resolve(value);
+      };
+      for (const [label, value] of [
+        ["Use Recommended", "recommended"],
+        ["Keep What I Entered", "original"],
+        ["Edit", "edit"],
+      ]) {
+        if (value === "recommended" && !result.recommended) continue;
+        const b = node("button", label);
+        b.type = "button";
+        b.addEventListener("click", () => finish(value));
+        actions.append(b);
+      }
+      d.append(actions);
+      d.addEventListener("cancel", (e) => {
+        e.preventDefault();
+        finish("edit");
+      });
+      document.body.append(d);
+      d.showModal();
+    });
+  }
+  function attribution() {
+    const n = node("span");
+    const logo = node("img");
+    logo.alt = "Google Maps";
+    logo.height = 18;
+    logo.src =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGIAAAASCAYAAACghwvPAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAABDBJREFUeNrcWI1R4lAQjgwFhAouVHBQwYUKDA0oVACpQKkArIBoA8QKEiswHZir4GIF3q7z7c3nmxci3gwyvJk3Itl9b3++/XbDRUDr6uoqlj8L2UnwceWy7x8eHvLgG5fYN5I/a/0stkyCM1o9clIdLDxJCPDdTmS232xvKDvG/moyb3V3yISQmx01EUjCEt9VsqeyB4K6C3wuzwh8N7o7gryG3PWxjOqDjiwJmQR/zgKgo1wNl8/ZGSVkLT7l4lPjob/ZsY3poSfoqmWnbYJdSdCEyo4+QQ0qF3bIRADIIZQTIYiH0NyypRqOvi7E+Dd8TiXYmwOdD2E4I6jGWTkHCXKJIzcXudLTjC0JDWgxBGU+oo8FoE3VSaATkc6qzRf4W+FM1RmKbE1n7XCn2lDaUOC554Of8rzAua8AdwhbMtjTUBuY4XmA52mfbKw8RhctOVDZFYLiojBCY9cgZ0jWM13cUBAKeT5VZ5CEguQMtZy8R8c+CxwnNwLtNHuqWG24k71FcKdONaSw2XePASeGnxOAiYeICneMUHVq05R6cY0ExEhK1OsAfdyyjUctCXMgdIALdG2pYgwdavQAcpXj/JqQP8R5Y+jta6oWHB0uhhi1rQeEHVSrdyWgy1sETPukC0oLnPo5QZVYL104sqo/hsyQ7kgoXnqGVpP6p5V7z4nw8evE2YywS7o4g3MN0NTQ2GuIXhkNQc5QaP0gJrkachWQ2/ZOYTSxwiT0h+6rneryrZQSuoDdqSdpRouXyhJgikuq2n+VxsMO/Fzh31+wKQATrJEc9TfrEYIWLoI0cLwpWE8k9tvRaQjtERlaOXK1U3k8pfEq9zRbWwVKPgRYxkBlvS8L8CkHCFX3zp2ikPQZqCnpAG7VQoMmn8K+CPbqmS96fo8QF+0rZyrdgJKn64engceEysYNNjXwwD0PKAl8SWpxkCe+ARBZHzBzWAXUotv2ondNFGzUNPbIjfYARs9/rxjQ7gS09E7fPaDCJgzN/LNmCOOgvmEmKMUbyGyoVN915PmSkrCjQOVOxSWUhB0ZWBHytza60k8uQQtd1HyXOgqdF5R+FzVZZY4RmK6Vd4y5IRoyg9Li9gRaU9tCsExqE1wfxqTy8BVKEaYJ38qgrDob0bkGCtZsAI3DGpgUMiNMGe6Zc0KmTU2FR8635jS5vTg6MfFzVzKqDhFLuN5R4r62d6YlwFCBykKMwTpB/oRdCvac4lL3yJhbasiNBwlT962bysulianTwN1Gb9w/pgZeQS53zqocOiqteqA79vSRDJOJb+IqW7h8n5xxe0jBnXvOKpH8iN4VMhtMAOINvUzG0Jme1G8OoMSR851W25vs3Sn/XgIbi//+9fUEHNmCErfWyFHiM9/L3Lmt/gnZcoey9/F95VDW2a2TqQjqEYfw/Skt7Q33X1X+K8AAJX03+VzRIA4AAAAASUVORK5CYII=";
+    n.append(logo);
+    n.className = "address-attribution";
+    n.setAttribute("translate", "no");
+    return n;
+  }
+  function attach(
+    input,
+    call,
+    context = () => ({}),
+    initialStatus = "Needs Review",
+  ) {
+    if (states.has(input)) return states.get(input);
+    const label = input.parentElement,
+      holder = node("div");
+    holder.className =
+      "address-entry" + (label.classList.contains("full") ? " full" : "");
+    label.replaceWith(holder);
+    holder.append(label);
+    const list = node("div"),
+      status = node("p"),
+      check = node("button", "Check Address");
+    list.className = "address-suggestions";
+    list.id = "address-list-" + ++counter;
+    list.hidden = true;
+    list.setAttribute("role", "group");
+    list.setAttribute("aria-label", "Google address suggestions");
+    status.className = "hint address-state";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    check.type = "button";
+    check.className = "secondary address-check-button";
+    holder.append(list, check, status);
+    const privacy = node(
+      "p",
+      "Address search and checking send only this address text to Google. Keep recipient names and delivery notes in their separate fields.",
+    );
+    privacy.className = "hint";
+    holder.append(privacy);
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("aria-controls", list.id);
+    input.setAttribute("aria-expanded", "false");
+    input.setAttribute("aria-autocomplete", "list");
+    let revision = 0,
+      timer,
+      session = null,
+      features = null,
+      receipt = "",
+      checked = input.value.trim(),
+      running = null;
+    const labelStatus = (s) =>
+      s === "Confirmed"
+        ? "Address Verified"
+        : s === "Manually Reviewed"
+          ? "Address manually reviewed"
+          : "Needs Review";
+    status.textContent = labelStatus(initialStatus);
+    const clear = () => {
+      list.hidden = true;
+      list.replaceChildren();
+      input.setAttribute("aria-expanded", "false");
+    };
+    const reset = (s = "Needs Review") => {
+      revision++;
+      clearTimeout(timer);
+      session = null;
+      receipt = "";
+      checked = input.value.trim();
+      status.textContent = labelStatus(s);
+      clear();
+    };
+    async function config() {
+      return features || (features = await call("addressConfig", {}));
+    }
+    async function validate(candidate) {
+      if (running) return running;
+      const original = input.value.trim(),
+        rev = revision;
+      if (!original) return true;
+      clear();
+      clearTimeout(timer);
+      running = (async () => {
+        let result;
+        try {
+          if (!(await config()).validation) {
+            checked = original;
+            receipt = "";
+            status.textContent =
+              "Needs Review — address checking is currently unavailable.";
+            return true;
+          }
+          status.textContent = "Checking address…";
+          result = await call("addressPreview", {
+            ...context(),
+            address: original,
+            candidate: candidate || original,
+            sessionToken: session || "",
+          });
+        } catch (_) {
+          result = { original, confident: false };
+        } finally {
+          session = null;
+        }
+        if (
+          rev !== revision ||
+          input.value.trim() !== original ||
+          !input.isConnected
+        )
+          return false;
+        let choice = "original";
+        if (!result.confident || !result.equivalent)
+          choice = await choose(result);
+        if (rev !== revision || !input.isConnected) return false;
+        if (choice === "edit") {
+          checked = "";
+          receipt = "";
+          status.textContent =
+            "Needs Review — edit the address and check again.";
+          input.focus();
+          return false;
+        }
+        if (choice === "recommended") {
+          input.value = result.recommended;
+          receipt = result.recommendedReceipt || "needs-review";
+        } else receipt = result.originalReceipt || "needs-review";
+        checked = input.value.trim();
+        status.textContent =
+          result.confident && (choice === "recommended" || result.equivalent)
+            ? "Address Verified"
+            : "Needs Review";
+        return true;
+      })();
+      try {
+        return await running;
+      } finally {
+        running = null;
+      }
+    }
+    async function suggest(rev) {
+      const address = input.value.trim();
+      if (address.length < 4 || input.disabled) return;
+      try {
+        if (!(await config()).autocomplete || rev !== revision) return;
+        session ||= crypto.randomUUID();
+        const data = await call("addressSuggestions", {
+          ...context(),
+          address,
+          sessionToken: session,
+        });
+        if (
+          rev !== revision ||
+          !input.isConnected ||
+          document.activeElement !== input
+        )
+          return;
+        clear();
+        for (const suggestion of data.suggestions || []) {
+          const b = node("button", suggestion.address);
+          b.type = "button";
+          b.className = "address-suggestion";
+          b.addEventListener("click", () => validate(suggestion.address));
+          b.addEventListener("keydown", (e) => {
+            const buttons = [...list.querySelectorAll("button")],
+              at = buttons.indexOf(b);
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              buttons[
+                (at + (e.key === "ArrowDown" ? 1 : buttons.length - 1)) %
+                  buttons.length
+              ].focus();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              clear();
+              input.focus();
+            }
+          });
+          list.append(b);
+        }
+        if (list.children.length) {
+          list.append(attribution());
+          list.hidden = false;
+          input.setAttribute("aria-expanded", "true");
+        }
+      } catch (_) {
+        if (rev === revision) {
+          clear();
+          status.textContent =
+            "Suggestions unavailable. Enter the full address; it can still be submitted.";
+        }
+      }
+    }
+    input.addEventListener("input", () => {
+      revision++;
+      receipt = "";
+      checked = "";
+      clear();
+      clearTimeout(timer);
+      status.textContent = "Needs Review";
+      if (!running) timer = setTimeout(() => suggest(revision), 450);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") clear();
+      if (e.key === "ArrowDown" && !list.hidden) {
+        e.preventDefault();
+        list.querySelector("button")?.focus();
+      }
+    });
+    holder.addEventListener("focusout", (e) => {
+      if (!holder.contains(e.relatedTarget)) clear();
+    });
+    check.addEventListener("click", () => validate());
+    const state = {
+      reset,
+      check: () => validate(),
+      prepare: () =>
+        running ||
+        (checked === input.value.trim() ? Promise.resolve(true) : validate()),
+      receipt: () => (checked === input.value.trim() ? receipt : ""),
+    };
+    states.set(input, state);
+    return state;
+  }
+  async function prepareAll(root) {
+    for (const input of root.querySelectorAll(
+      '[name="address"], [name="startAddress"]',
+    ))
+      if (
+        !input.disabled &&
+        states.has(input) &&
+        !(await states.get(input).prepare())
+      )
+        return false;
+    return true;
+  }
+  return {
+    attach,
+    prepareAll,
+    receipt: (input) => states.get(input)?.receipt() || "",
+    reset: (input, status) => states.get(input)?.reset(status),
+  };
+})();
+```
+
+## File 17: AdminStyles.html
+
+SHA-256: 92552397c016f7b5544b839ba969d9dcfb083754ee718c5014cc2a6dfe1ccd13
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -3316,9 +3946,59 @@ dialog::backdrop {
     display: none !important;
   }
 }
+
+.address-entry {
+  min-width: 0;
+  position: relative;
+}
+.address-suggestions {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  margin: 0.35rem 0;
+  padding: 0.3rem;
+}
+.address-suggestion {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: white;
+  color: var(--navy);
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.address-suggestion:focus-visible {
+  background: #e1eef5;
+}
+.address-attribution {
+  display: block;
+  white-space: nowrap;
+  font:
+    400 1rem Roboto,
+    sans-serif;
+  letter-spacing: normal;
+  color: #5e5e5e;
+  padding: 10px 10px 5px;
+}
+.address-state {
+  margin: 0.4rem 0;
+}
+.address-check-button {
+  margin-top: 0.35rem;
+}
+.address-check p {
+  overflow-wrap: anywhere;
+}
+@media print {
+  .address-entry,
+  .address-check {
+    display: none !important;
+  }
+}
 ```
 
-## File 16: appsscript.json
+## File 18: appsscript.json
 
 SHA-256: 1a5770a18505eb95ea7b70a326cbcab96ceae6b1a3e66ba71eb213dac3301760
 

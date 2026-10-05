@@ -4,6 +4,43 @@ import fs from "node:fs";
 import path from "node:path";
 import { harness, createEvent, payload, approve } from "../tests/harness.mjs";
 const h = harness();
+// Explicit synthetic Google fixture: never makes an external request.
+if (process.argv.includes("--address-fixtures")) {
+  h.props.MEALS_ADDRESS_AUTOCOMPLETE_ENABLED = "true";
+  h.props.MEALS_ADDRESS_VALIDATION_ENABLED = "true";
+  h.props.MEALS_PLACES_API_KEY = "synthetic-key";
+  h.props.MEALS_ADDRESS_API_KEY = "synthetic-key";
+  h.state.fetch = (url, options) => {
+    const body = JSON.parse(options.payload);
+    const result = url.includes("places.googleapis.com")
+      ? {
+          suggestions: [
+            {
+              placePrediction: {
+                text: { text: "100 Synthetic Street, Example City, VA 00000" },
+              },
+            },
+          ],
+        }
+      : {
+          result: {
+            verdict: {
+              addressComplete: true,
+              validationGranularity: "PREMISE",
+              hasUnconfirmedComponents:
+                body.address.addressLines[0].includes("Uncertain"),
+            },
+            address: {
+              formattedAddress: "100 Synthetic Street, Example City, VA 00000",
+            },
+          },
+        };
+    return {
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify(result),
+    };
+  };
+}
 const e = createEvent(h, 20);
 const sample = h.admin("createReferral", payload(e.EventID, [3, 2]));
 const printEvent = createEvent(h, 100);
@@ -79,6 +116,10 @@ const server = http.createServer(async (req, res) => {
           fs.readFileSync("apps-script/AdminStyles.html", "utf8"),
         )
         .replace(
+          "<?!= include_('AddressClient'); ?>",
+          fs.readFileSync("apps-script/AddressClient.html", "utf8"),
+        )
+        .replace(
           "<?!= include_('AdminClient'); ?>",
           fs.readFileSync("apps-script/AdminClient.html", "utf8"),
         );
@@ -105,8 +146,11 @@ const server = http.createServer(async (req, res) => {
       name.includes("..") ||
       !(
         name === "index.html" ||
+        name === "privacy.html" ||
+        name === "terms.html" ||
         name === "admin.html" ||
         name === "app.js" ||
+        name === "address-entry.js" ||
         name === "admin.js" ||
         name === "styles.css"
       )

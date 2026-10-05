@@ -416,3 +416,53 @@ dialog::backdrop {
     display: none !important;
   }
 }
+
+.address-entry {
+  min-width: 0;
+  position: relative;
+}
+.address-suggestions {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  margin: 0.35rem 0;
+  padding: 0.3rem;
+}
+.address-suggestion {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: white;
+  color: var(--navy);
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.address-suggestion:focus-visible {
+  background: #e1eef5;
+}
+.address-attribution {
+  display: block;
+  white-space: nowrap;
+  font:
+    400 1rem Roboto,
+    sans-serif;
+  letter-spacing: normal;
+  color: #5e5e5e;
+  padding: 10px 10px 5px;
+}
+.address-state {
+  margin: 0.4rem 0;
+}
+.address-check-button {
+  margin-top: 0.35rem;
+}
+.address-check p {
+  overflow-wrap: anywhere;
+}
+@media print {
+  .address-entry,
+  .address-check {
+    display: none !important;
+  }
+}

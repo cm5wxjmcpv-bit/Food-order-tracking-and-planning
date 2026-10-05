@@ -51,7 +51,10 @@ function eventWrite_(s, p, admin) {
       Version: 1,
       RouteVersion: 1,
       RouteNeedsReview: true,
-      StartAddressStatus: "Needs Review",
+      StartAddressStatus: addressProofStatus_(
+        input.StartAddress,
+        p.addressReceipt,
+      ),
     });
     s.EVENTS.push(e);
     audit_(s, admin, "Event Created", "Event", e.EventID, null, input);
@@ -77,6 +80,13 @@ function eventWrite_(s, p, admin) {
   };
   if (input.StartAddress !== e.StartAddress) {
     e.StartAddressStatus = "Needs Review";
+    routeDirty_(e);
+  }
+  if (p.addressReceipt) {
+    e.StartAddressStatus = addressProofStatus_(
+      input.StartAddress,
+      p.addressReceipt,
+    );
     routeDirty_(e);
   }
   Object.assign(e, input);

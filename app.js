@@ -47,6 +47,11 @@
       totals();
     });
     container.append(fragment);
+    MealAddresses.attach(
+      card.querySelector('[name="address"]'),
+      (action, p) => api({ action, ...p }),
+      () => ({ eventId: selected?.eventId }),
+    );
     renumber();
     totals();
   }
@@ -62,14 +67,17 @@
     ["organizationName", "organizationEmail", "organizationPhone"].forEach(
       (n) => (p[n] = form.elements[n].value.trim()),
     );
-    p.recipients = [...container.children].map((c) =>
-      Object.fromEntries(
+    p.recipients = [...container.children].map((c) => ({
+      ...Object.fromEntries(
         [...c.querySelectorAll("[name]")].map((el) => [
           el.name,
           el.name === "mealCount" ? Number(el.value) : el.value.trim(),
         ]),
       ),
-    );
+      addressReceipt: MealAddresses.receipt(
+        c.querySelector('[name="address"]'),
+      ),
+    }));
     return p;
   }
   function totals() {
@@ -209,7 +217,7 @@
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (busy || !form.reportValidity() || !selected) return;
-    const payload = collect();
+    let payload = collect();
     if (
       payload.recipients.some(
         (r) => !Number.isInteger(r.mealCount) || r.mealCount < 1,
@@ -230,7 +238,16 @@
     totals();
     $("submissionMessage").textContent = "Submitting…";
     try {
-      const fingerprint = await hash(payload);
+      if (!(await MealAddresses.prepareAll(container))) {
+        $("submissionMessage").textContent =
+          "Edit the address and submit again when ready.";
+        return;
+      }
+      payload = collect();
+      const fingerprint = await hash({
+        ...payload,
+        recipients: payload.recipients.map(({ addressReceipt, ...r }) => r),
+      });
       if (pending && !pending.receipt && pending.fingerprint !== fingerprint)
         throw new Error(
           "A previous submission has an uncertain result. Restore the same information and retry before starting a different request.",

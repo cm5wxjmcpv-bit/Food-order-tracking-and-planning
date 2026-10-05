@@ -41,6 +41,13 @@ function doPost(e) {
       } catch (_) {
         fail_("INVALID", "The request could not be read.");
       }
+      if (
+        p &&
+        ["addressConfig", "addressSuggestions", "addressPreview"].includes(
+          p.action,
+        )
+      )
+        return publicAddressCall_(p.action, p);
       if (!p || p.action !== "submit")
         fail_("FORBIDDEN", "This public operation is unavailable.");
       return submit_(p, null);
@@ -61,6 +68,9 @@ function adminCall(action, p) {
       Utilities.newBlob(JSON.stringify(p)).getBytes().length > MEAL_LIMITS.bytes
     )
       fail_("INVALID", "The request is too large.");
+    if (action === "addressConfig") return addressFeatures_();
+    if (action === "addressSuggestions") return addressSuggestions_(p);
+    if (action === "addressPreview") return addressPreview_(p);
     if (action === "identity")
       return {
         email: auth.email,

@@ -593,7 +593,11 @@ try {
       await fill();
       let lost = false;
       await publicPage.route("**/api", async (r) => {
-        if (r.request().method() === "POST" && !lost) {
+        if (
+          r.request().method() === "POST" &&
+          r.request().postDataJSON()?.action === "submit" &&
+          !lost
+        ) {
           lost = true;
           await r.fetch();
           await r.abort("failed");
