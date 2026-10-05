@@ -670,7 +670,7 @@ test("application Maps quotas block calls before incurring usage", () => {
   h.props.MEALS_ADDRESS_API_KEY = "synthetic-only";
   h.props.MEALS_MAPS_USAGE_DAY = JSON.stringify({
     date: h.ctx.Utilities.formatDate(new Date(), "America/Los_Angeles", "yyyy-MM-dd"),
-    validation: 25,
+    validation: 800,
     optimization: 0,
   });
   const r = h.get("RECIPIENTS")[0];

@@ -39,9 +39,9 @@ Application caps are reserved under the shared script lock before each external 
 | Service | Per minute | Per Pacific day | Per Pacific month |
 | --- | ---: | ---: | ---: |
 | Autocomplete | 60 | 1,500 | 10,000 |
-| Validation | 20 | 25 | 800 |
+| Validation | 20 | 800 | 800 |
 
-Validation stops before call 26 in a Pacific calendar day or call 801 in a Pacific calendar month. These fixed limits are in `Addresses.gs`; adding a Script Property does not change them. Keep existing usage-counter properties when updating Code.gs. If Google Cloud does not allow quota edits on the free trial, leave those controls alone; the application caps still apply, but there is no verified Cloud hard cap.
+Validation stops before call 801 in a Pacific calendar month. The daily ceiling is also 800, allowing the entire monthly allowance on one busy day; the 20-per-minute limit remains. These fixed limits are in `Addresses.gs`; adding a Script Property does not change them. Keep existing usage-counter properties when updating Code.gs. If Google Cloud does not allow quota edits on the free trial, leave those controls alone; the application caps still apply, but there is no verified Cloud hard cap.
 
 Failed external calls count conservatively. The caps apply across admin/public deployments of this project; they prevent further calls after the cap, but are not a universal Cloud hard spending cap or a guarantee against a leaked key being used outside the app. A public caller could exhaust these shared limits; rate-limit/abuse testing remains a release dependency. No CAPTCHA has been added.
 

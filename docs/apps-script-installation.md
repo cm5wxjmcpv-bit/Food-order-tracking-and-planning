@@ -1256,7 +1256,7 @@ function dashboard_(s, p) {
 
 ## File 10: Addresses.gs
 
-SHA-256: ec18e51c548eb3aed184b4fbc31166be79f2f406a8c7333518bffa9522c44dd8
+SHA-256: 2d6672082cde4745b5332918814335f685b360f662d914588b19ae7fe2cf6acf
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -1373,7 +1373,7 @@ function mapsUsage_(kind, units) {
     if (monthly.month !== month)
       monthly = { month, validation: 0, optimization: 0 };
     const dailyLimit =
-        kind === "autocomplete" ? 1500 : kind === "validation" ? 25 : 500,
+        kind === "autocomplete" ? 1500 : kind === "validation" ? 800 : 500,
       monthLimit = kind === "autocomplete" ? 10000 : kind === "validation" ? 800 : 3000;
     if (
       (daily[kind] || 0) + units > dailyLimit ||

@@ -321,11 +321,11 @@ test("validation allows the 800th monthly call and blocks the next call before G
   assert.equal(h.get("RECIPIENTS")[0].AddressStatus, "Needs Review");
 });
 
-test("validation allows the 25th daily call and blocks the next call before Google", () => {
+test("validation allows the 800th daily call and blocks the next call before Google", () => {
   const h = configured(), e = createEvent(h);
   provider(h, "100 Synthetic Lane");
   const date = h.ctx.Utilities.formatDate(new Date(), "America/Los_Angeles", "yyyy-MM-dd");
-  h.props.MEALS_MAPS_USAGE_DAY = JSON.stringify({ date, validation: 24 });
+  h.props.MEALS_MAPS_USAGE_DAY = JSON.stringify({ date, validation: 799 });
   assert.equal(publicCall(h, "addressPreview", { eventId: e.EventID, address: "100 Synthetic Lane" }).ok, true);
   const calls = h.state.apiCalls;
   assert.equal(publicCall(h, "addressPreview", { eventId: e.EventID, address: "102 Synthetic Lane" }).error.code, "API_QUOTA");

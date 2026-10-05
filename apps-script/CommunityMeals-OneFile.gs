@@ -1066,7 +1066,7 @@ function mapsUsage_(kind, units) {
     if (monthly.month !== month)
       monthly = { month, validation: 0, optimization: 0 };
     const dailyLimit =
-        kind === "autocomplete" ? 1500 : kind === "validation" ? 25 : 500,
+        kind === "autocomplete" ? 1500 : kind === "validation" ? 800 : 500,
       monthLimit = kind === "autocomplete" ? 10000 : kind === "validation" ? 800 : 3000;
     if (
       (daily[kind] || 0) + units > dailyLimit ||
