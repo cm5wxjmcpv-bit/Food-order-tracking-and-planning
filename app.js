@@ -112,7 +112,7 @@
       );
     let response;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), submissionId ? 8000 : 12000);
+    const timeout = setTimeout(() => controller.abort(), submissionId ? 15000 : 12000);
     try {
       response = await fetch(
         payload ? url + "?request=" + Date.now() : submissionId
@@ -140,7 +140,9 @@
       }
       return result.data;
     } catch (error) {
-      if (error.code) throw error;
+      // Safari DOMException uses numeric code 20 for AbortError. Only our
+      // server's string error codes are definitive backend responses.
+      if (typeof error.code === "string" && error.code) throw error;
       const unavailable = new Error("The service could not be reached.");
       unavailable.uncertain = true;
       throw unavailable;

@@ -2,7 +2,7 @@
 
 Observed live: user requests appeared in admin, while Safari showed a connection error after about a minute. Apps Script execution screenshot showed doPost completed in 1.181, 2.583 and 3.351 seconds. This narrows the delay to outside the recorded execution, but does not identify the exact failing network/redirect layer.
 
-The public frontend now bounds POST fetch/response reading to 12 seconds. An uncertain transport or backend UNAVAILABLE response triggers up to two read-only receipt checks (8 seconds each, one second between checks). A successful recovery displays the original receipt. Missing/failed checks leave the result explicitly uncertain, preserving the original submission ID. Recovery never repeats the POST and never infers success from capacity changes.
+The public frontend now bounds POST fetch/response reading to 12 seconds. An uncertain transport or backend UNAVAILABLE response triggers up to two read-only receipt checks (15 seconds each, one second between checks). A successful recovery displays the original receipt. Missing/failed checks leave the result explicitly uncertain, preserving the original submission ID. Recovery never repeats the POST and never infers success from capacity changes. Safari's numeric DOMException codes are treated as uncertain transport errors, rather than definitive string backend error codes.
 
 Requests use no-store and omit browser credentials; a non-sensitive request timestamp avoids reuse of cached response redirects. This is a transport precaution, not a proven explanation of the original failure.
 
@@ -24,6 +24,6 @@ Use only synthetic data. Verify a new public submission shows confirmation and o
 
 ## Validation
 
-67 local tests pass in modular mode and 67 in generated single-file mode; syntax, manifest, source-package parity and credential checks pass. These include lost-response recovery without another POST, definitive capacity rejection, delayed receipt visibility, continued uncertainty, receipt privacy, unknown/invalid IDs, and exclusion of admin-created submissions. These are local simulations, not live Apps Script/network performance tests.
+68 local tests pass in modular mode and 68 in generated single-file mode; syntax, manifest, source-package parity and credential checks pass. These include lost-response recovery without another POST, definitive capacity rejection, delayed receipt visibility, continued uncertainty, receipt privacy, unknown/invalid IDs, exclusion of admin-created submissions, and Safari numeric AbortError recovery. These are local simulations, not live Apps Script/network performance tests.
 
-Live fixed-backend tests are NOT YET TESTED until the owner installs and versions the updated public deployment. Real iPhone/Safari device checks remain required. This patch does not promise a particular Google network response time or claim the whole V1 acceptance suite is finished.
+The owner installed the updated backend; a live unknown-ID receipt read returned ok:true, receipt:null. Their subsequent Safari test saved a request but showed "Fetch is aborted", identifying the numeric DOMException handling bug fixed in the frontend-only follow-up. Live saved-receipt recovery with that follow-up is NOT YET TESTED. Real iPhone checks remain required. This patch does not promise a particular Google network response time or claim the whole V1 acceptance suite is finished.

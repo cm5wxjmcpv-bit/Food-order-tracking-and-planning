@@ -48,5 +48,20 @@ test("public transport bounds POST time, disables caching and keeps recipient da
   assert.equal(request.options.cache, "no-store"); assert.equal(request.options.credentials, "omit");
   assert.ok(!request.url.includes("Synthetic")); assert.match(request.options.body, /Synthetic/);
   await ctx.api(null, "synthetic-submission-id");
-  assert.equal(ms, 8000); assert.match(request.url, /action=submissionReceipt/);
+  assert.equal(ms, 15000); assert.match(request.url, /action=submissionReceipt/);
+});
+test("Safari numeric AbortError triggers receipt recovery instead of escaping as a backend error", async () => {
+  const source = fs.readFileSync("app.js", "utf8");
+  let calls = 0;
+  const ctx = vm.createContext({ window: { MEALS_CONFIG: { publicApiUrl: "https://example.test/exec" } }, AbortController,
+    setTimeout: () => 1, clearTimeout: () => {}, encodeURIComponent, Date,
+    fetch: async () => {
+      if (++calls === 1) throw new DOMException("Fetch is aborted", "AbortError");
+      return {ok: true, json: async () => ({ok: true, data: {receipt}})};
+    } });
+  vm.runInContext(source.slice(source.indexOf("  async function api("), source.indexOf("  async function load(")), ctx);
+  const c = controller();
+  const result = await c.confirm({send: () => ctx.api({action: "submit"}), check: () => ctx.api(null, "synthetic-submission-id")});
+  assert.equal(result, receipt);
+  assert.equal(calls, 2);
 });
