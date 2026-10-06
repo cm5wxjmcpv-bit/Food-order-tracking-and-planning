@@ -31,7 +31,7 @@ const modules = names
     return `// ===== ${name}.gs =====\n${code}`;
   })
   .join("\n");
-const bundle = `// Build marker: COMMUNITY-MEALS-20261006-SUBMISSION-CONFIRMATION\n/* Community Meals V1 — generated from the modular files in this commit.\n   Install the ENTIRE file as Code.gs. No other .gs/.html files required.\n   Address services and route optimization default to disabled.\n   Branch: development/community-meals-v1-20261001. */\nconst ADMIN_PAGE_HTML_ = ${JSON.stringify(html)};\n\n${modules}`;
+const bundle = `// Build marker: COMMUNITY-MEALS-20261006-ADMIN-ADDRESS-REVIEW\n/* Community Meals V1 — generated from the modular files in this commit.\n   Install the ENTIRE file as Code.gs. No other .gs/.html files required.\n   Address services and route optimization default to disabled.\n   Branch: development/community-meals-v1-20261001. */\nconst ADMIN_PAGE_HTML_ = ${JSON.stringify(html)};\n\n${modules}`;
 const target = "apps-script/CommunityMeals-OneFile.gs";
 if (process.argv.includes("--check")) {
   if (fs.readFileSync(target, "utf8") !== bundle)

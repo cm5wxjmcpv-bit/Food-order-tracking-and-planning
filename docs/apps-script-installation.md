@@ -2380,7 +2380,7 @@ Copy only the contents of this code box into the matching Apps Script file.
 
 ## File 15: AdminClient.html
 
-SHA-256: 788a506eee277eda86189c0ab1e3c7f5706d13e30fd9cc80894f819d3832644d
+SHA-256: d6d4ea2c175c5c36355d8a3932060630fee5e45465d0ef64cb83d535809ffb73
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -2397,7 +2397,8 @@ Copy only the contents of this code box into the matching Apps Script file.
     busy = false,
     dragId = null,
     createId = null,
-    routeUnsaved = false;
+    routeUnsaved = false,
+    referralAddressControls = [];
   const el = (tag, text, cls) => {
     const n = document.createElement(tag);
     if (text != null) n.textContent = text;
@@ -2644,6 +2645,8 @@ Copy only the contents of this code box into the matching Apps Script file.
         );
         if (!addressReviewed(recipient.AddressStatus))
           item.append(el("span", "Address Needs Review", "badge"));
+        else item.append(el("span", recipient.AddressStatus === "Confirmed"
+          ? "Address Verified" : "Address Manually Reviewed", "hint"));
         if (recipient.DuplicateFlag)
           item.append(el("span", "Possible Duplicate", "warning"));
         recipients.append(item);
@@ -2664,6 +2667,8 @@ Copy only the contents of this code box into the matching Apps Script file.
       if (!readonly()) {
         actions.append(
           button("Edit", () => openReferral(r, false), "secondary"),
+          button("Review Addresses with Google", () =>
+            task(() => reviewReferralAddresses(r)), "secondary"),
         );
         ["Approved", "Rejected", "Pending"]
           .filter((s) => s !== r.Status)
@@ -2764,12 +2769,12 @@ Copy only the contents of this code box into the matching Apps Script file.
     );
     card.append(grid);
     if (!viewOnly)
-      MealAddresses.attach(
+      referralAddressControls.push(MealAddresses.attach(
         grid.querySelector('[name="address"]'),
         addressCall,
         () => ({}),
         r?.AddressStatus,
-      );
+      ));
     if (r) {
       card.append(
         el(
@@ -2860,6 +2865,9 @@ Copy only the contents of this code box into the matching Apps Script file.
         : "Edit Referral"
       : "Add Referral";
     $("editorMessage").textContent = "";
+    referralAddressControls = [];
+    $("saveReferral").textContent = "Save Referral";
+    $("saveReferral").disabled = false;
     ["organizationName", "organizationEmail", "organizationPhone"].forEach(
       (n) => {
         const key = n[0].toUpperCase() + n.slice(1);
@@ -2873,6 +2881,34 @@ Copy only the contents of this code box into the matching Apps Script file.
     $("editorAddRecipient").hidden = !!r || viewOnly;
     $("saveReferral").hidden = viewOnly;
     $("referralDialog").showModal();
+  }
+  async function reviewReferralAddresses(r) {
+    if (readonly()) return;
+    openReferral(r, false);
+    $("referralHeading").textContent = "Review Addresses with Google";
+    $("saveReferral").textContent = "Save Reviewed Addresses";
+    $("saveReferral").disabled = true;
+    const controls = referralAddressControls.slice();
+    const current = () => editing?.ReferralID === r.ReferralID && $("referralDialog").open;
+    try {
+      for (let i = 0; i < controls.length; i++) {
+        if (!current()) return;
+        $("editorMessage").textContent = "Checking address " + (i + 1) + " of " + controls.length + "…";
+        const ready = await controls[i].check();
+        if (!current()) return;
+        if (!ready) {
+          $("editorMessage").textContent = "Edit the address, then click Save Reviewed Addresses. Changes have not been saved yet.";
+          return;
+        }
+      }
+      if (current()) $("editorMessage").textContent =
+        "Address checks finished. Click Save Reviewed Addresses to save your choices. Any unconfirmed address remains Address Needs Review.";
+    } catch (error) {
+      if (current()) $("editorMessage").textContent = error.message;
+      throw error;
+    } finally {
+      if (current()) $("saveReferral").disabled = false;
+    }
   }
   function editorPayload() {
     const f = $("referralEditor"),
