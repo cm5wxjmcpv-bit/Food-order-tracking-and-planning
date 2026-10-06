@@ -122,7 +122,7 @@ export function harness({ bundle = process.env.MEALS_TEST_BUNDLE === "true" } = 
         },
       }),
     },
-    ScriptApp: { getOAuthToken: () => "synthetic-server-token" },
+    ScriptApp: { getOAuthToken: () => "synthetic-server-token", AuthMode: { FULL: "FULL" }, requireScopes: () => {} },
     UrlFetchApp: {
       fetch: (url, options) => {
         state.apiCalls++;

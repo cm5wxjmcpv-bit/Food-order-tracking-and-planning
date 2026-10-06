@@ -824,3 +824,28 @@ test("Maps-disabled manual review supports final saved routes with confirmation,
     "READ_ONLY",
   );
 });
+
+test("routing diagnostics expose only bounded machine codes, never provider secrets or addresses", () => {
+  const h = harness();
+  const response = body => ({ getResponseCode: () => 403, getContentText: () => body });
+  const msg = h.ctx.routingFailureMessage_(response(JSON.stringify({ error: {
+    status: "PERMISSION_DENIED", message: "private address / private token",
+    details: [{ reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT", metadata: { secret: "private token" } },
+      { reason: "private address" }]
+  }})));
+  assert.match(msg, /HTTP 403/);
+  assert.match(msg, /ACCESS_TOKEN_SCOPE_INSUFFICIENT/);
+  assert.match(msg, /New version/);
+  assert.doesNotMatch(msg, /private/);
+  assert.match(h.ctx.routingFailureMessage_(response("not JSON private token")), /previous order is unchanged/);
+  assert.doesNotMatch(h.ctx.routingFailureMessage_(response('{"error":{"details":"private"}}')), /private/);
+});
+
+test("routing diagnostic functions require an independently authorized administrator", () => {
+  const h = harness();
+  h.state.active = "unauthorized@example.test";
+  h.state.effective = h.state.active;
+  assert.throws(() => h.ctx.checkRoutingConnection(), /approved administrator/);
+  assert.throws(() => h.ctx.authorizeRouting(), /approved administrator/);
+  assert.equal(h.state.apiCalls, 0);
+});

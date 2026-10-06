@@ -1707,7 +1707,7 @@ function publicAddressCall_(action, p) {
 
 ## File 12: Routing.gs
 
-SHA-256: 3e0209cd465e75742575b1e09f95eff509ce2e36e23f33f0c9c9170bb3746360
+SHA-256: 19ac962ab52c89ff4d8896fdf800a635b4f5db48ff501fe661e5f53c557d8823
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -1883,10 +1883,7 @@ function optimize_(p) {
     },
   );
   if (res.getResponseCode() !== 200)
-    fail_(
-      "MAPS",
-      "The route could not be optimized. The previous order is unchanged.",
-    );
+    fail_("MAPS", routingFailureMessage_(res));
   const result = JSON.parse(res.getContentText());
   if ((result.skippedShipments || []).length)
     fail_(
@@ -1905,6 +1902,48 @@ function optimize_(p) {
       true,
     ),
   );
+}
+
+// Return only bounded machine codes. Never expose Google's raw message/body.
+function routingFailureMessage_(response) {
+  let error = {};
+  try { error = JSON.parse(response.getContentText()).error || {}; } catch (_) {}
+  const safeCode = value => /^[A-Z][A-Z0-9_]{0,80}$/.test(String(value || "")) ? String(value) : "";
+  const details = Array.isArray(error.details) ? error.details.slice(0, 5) : [];
+  const codes = [safeCode(error.status), ...details.map(d => safeCode(d && d.reason))].filter(Boolean);
+  let guidance = "";
+  if (codes.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT"))
+    guidance = " Authorize Google Cloud routing permission and deploy a New version with the updated appsscript.json.";
+  else if (codes.includes("SERVICE_DISABLED"))
+    guidance = " Enable Route Optimization API in the configured Google Cloud project.";
+  else if (codes.includes("BILLING_DISABLED"))
+    guidance = " Check billing on the configured Google Cloud project.";
+  return "Route optimization failed: HTTP " + response.getResponseCode() +
+    (codes.length ? " — " + codes.join(" / ") : "") + "." + guidance +
+    " The previous order is unchanged.";
+}
+function checkRoutingConnection() {
+  requireAdmin_();
+  const project = properties_().getProperty("MEALS_CLOUD_PROJECT_ID");
+  if (!project) fail_("CONFIG", "MEALS_CLOUD_PROJECT_ID is missing.");
+  const response = UrlFetchApp.fetch(
+    "https://routeoptimization.googleapis.com/v1/projects/" + encodeURIComponent(project) + ":optimizeTours",
+    {
+      method: "post", contentType: "application/json",
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      payload: JSON.stringify({ solvingMode: "VALIDATE_ONLY", model: {
+        vehicles: [{ startLocation: { latitude: 36.69, longitude: -79.87 }, costPerHour: 1 }], shipments: []
+      }}), muteHttpExceptions: true
+    }
+  );
+  const message = response.getResponseCode() === 200 ? "Routing connection: HTTP 200 | OK" : routingFailureMessage_(response);
+  console.log(message);
+  return message;
+}
+function authorizeRouting() {
+  requireAdmin_();
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, ["https://www.googleapis.com/auth/cloud-platform"]);
+  return checkRoutingConnection();
 }
 ```
 
@@ -4133,7 +4172,7 @@ button[aria-busy="true"]::after { content: " — Loading…"; }
 
 ## File 18: appsscript.json
 
-SHA-256: 1a5770a18505eb95ea7b70a326cbcab96ceae6b1a3e66ba71eb213dac3301760
+SHA-256: 562a065b0daf2b8a887929dc61414e4c414f4150f830d367569fc2455127b749
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -4142,11 +4181,24 @@ Copy only the contents of this code box into the matching Apps Script file.
   "timeZone": "America/New_York",
   "exceptionLogging": "NONE",
   "runtimeVersion": "V8",
-  "dependencies": {"enabledAdvancedServices": [{"userSymbol": "Sheets", "serviceId": "sheets", "version": "v4"}]},
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Sheets",
+        "serviceId": "sheets",
+        "version": "v4"
+      }
+    ]
+  },
   "oauthScopes": [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/script.external_request"
-  ]
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/cloud-platform"
+  ],
+  "webapp": {
+    "executeAs": "USER_ACCESSING",
+    "access": "ANYONE"
+  }
 }
 ```

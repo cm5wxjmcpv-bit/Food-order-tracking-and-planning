@@ -2,7 +2,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 const files = fs
   .readdirSync("apps-script")
-  .filter((f) => f.endsWith(".gs") && f !== "CommunityMeals-OneFile.gs");
+  .filter((f) => f.endsWith(".gs") && !f.startsWith("CommunityMeals-"));
 for (const f of files)
   new vm.Script(fs.readFileSync("apps-script/" + f, "utf8"), { filename: f });
 new vm.Script(fs.readFileSync("apps-script/AdminClient.html", "utf8"), {
