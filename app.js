@@ -47,11 +47,6 @@
       totals();
     });
     container.append(fragment);
-    MealAddresses.attach(
-      card.querySelector('[name="address"]'),
-      (action, p) => api({ action, ...p }),
-      () => ({ eventId: selected?.eventId }),
-    );
     renumber();
     totals();
   }
@@ -73,9 +68,6 @@
           el.name,
           el.name === "mealCount" ? Number(el.value) : el.value.trim(),
         ]),
-      ),
-      addressReceipt: MealAddresses.receipt(
-        c.querySelector('[name="address"]'),
       ),
     }));
     return p;
@@ -239,11 +231,6 @@
     totals();
     $("submissionMessage").textContent = "Submitting…";
     try {
-      if (!(await MealAddresses.prepareAll(container))) {
-        $("submissionMessage").textContent =
-          "Edit the address and submit again when ready.";
-        return;
-      }
       payload = collect();
       const fingerprint = await hash({
         ...payload,

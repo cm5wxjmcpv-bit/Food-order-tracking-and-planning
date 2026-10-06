@@ -34,6 +34,20 @@ test("public form sharing requires administrator authorization and an explicit s
   h.state.active = h.state.effective = "unauthorized@example.test";
   code(h.admin("publicFormLink"), "FORBIDDEN");
 });
+test("typed public addresses reserve meals and require admin review without invoking enabled Maps services", () => {
+  const h = harness(), e = createEvent(h);
+  h.props.MEALS_MAPS_LIVE_ENABLED = "true";
+  h.props.MEALS_ADDRESS_AUTOCOMPLETE_ENABLED = "true";
+  h.props.MEALS_ADDRESS_VALIDATION_ENABLED = "true";
+  const p = payload(e.EventID, [2, 3]);
+  p.recipients[0].address = "100 Synthetic Street, Unit 2, Example City, VA 00000";
+  ok(h.public(p));
+  assert.equal(h.state.apiCalls, 0);
+  assert.equal(h.get("REFERRALS")[0].Status, "Pending");
+  assert.ok(h.get("RECIPIENTS").every(r => r.AddressStatus === "Needs Review"));
+  assert.equal(h.get("RECIPIENTS")[0].Address, p.recipients[0].address);
+  assert.equal(h.ctx.publicEvents_()[0].remaining, 15);
+});
 test("20-meal workflow: reservations, bulk approval, edit, reject, restore, reports and archive", () => {
   const h = harness(),
     e = createEvent(h);
