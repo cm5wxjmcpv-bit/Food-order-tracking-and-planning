@@ -71,6 +71,7 @@ function adminCall(action, p) {
     if (action === "addressConfig") return addressFeatures_();
     if (action === "addressSuggestions") return addressSuggestions_(p);
     if (action === "addressPreview") return addressPreview_(p);
+    if (action === "publicFormLink") return publicFormLink_();
     if (action === "identity")
       return {
         email: auth.email,
@@ -106,4 +107,15 @@ function adminCall(action, p) {
       }
     });
   });
+}
+function publicFormLink_() {
+  const url = String(properties_().getProperty("MEALS_PUBLIC_FORM_URL") || "").trim();
+  if (!url)
+    fail_("CONFIG", "The public referral website link is not configured yet. Add MEALS_PUBLIC_FORM_URL in Apps Script Script Properties using the public form website URL, not an admin or API URL.");
+  if (
+    !/^https:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::443)?(?:\/[^\s\\]*)?$/i.test(url) ||
+    /[?&](?:page=admin|action=)/i.test(url)
+  )
+    fail_("CONFIG", "MEALS_PUBLIC_FORM_URL must be an HTTPS public referral website link, not an admin or API URL.");
+  return { url };
 }

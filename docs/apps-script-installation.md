@@ -133,7 +133,7 @@ Installation is a manual action by the user. No script source was uploaded or we
 
 ## File 1: Code.gs
 
-SHA-256: 0d992405e633e65d63d17d8579147ee6d5d25a99e8d1356a4fc8b27a11cf3122
+SHA-256: 4c869b2b0496efa45c702646f70760332fa5c566471a168ec285aea9b1f4fc73
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -211,6 +211,7 @@ function adminCall(action, p) {
     if (action === "addressConfig") return addressFeatures_();
     if (action === "addressSuggestions") return addressSuggestions_(p);
     if (action === "addressPreview") return addressPreview_(p);
+    if (action === "publicFormLink") return publicFormLink_();
     if (action === "identity")
       return {
         email: auth.email,
@@ -246,6 +247,17 @@ function adminCall(action, p) {
       }
     });
   });
+}
+function publicFormLink_() {
+  const url = String(properties_().getProperty("MEALS_PUBLIC_FORM_URL") || "").trim();
+  if (!url)
+    fail_("CONFIG", "The public referral website link is not configured yet. Add MEALS_PUBLIC_FORM_URL in Apps Script Script Properties using the public form website URL, not an admin or API URL.");
+  if (
+    !/^https:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::443)?(?:\/[^\s\\]*)?$/i.test(url) ||
+    /[?&](?:page=admin|action=)/i.test(url)
+  )
+    fail_("CONFIG", "MEALS_PUBLIC_FORM_URL must be an HTTPS public referral website link, not an admin or API URL.");
+  return { url };
 }
 ```
 
@@ -2098,7 +2110,7 @@ function legacyMigrationPlan_() {
 
 ## File 14: Admin.html
 
-SHA-256: 56ab620c9822fc0648c4ecf8e0680eac2d51fe8456e5974a2e0d4f1c4a759b20
+SHA-256: c264d5fdd342cc6fb36425452dadc9d09a8e3ff364b22278966de4bfb5952e3f
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -2134,7 +2146,8 @@ Copy only the contents of this code box into the matching Apps Script file.
           ><button id="archiveEvent" class="secondary">Archive Event</button
           ><button id="reopenEvent" class="secondary" hidden>
             Reopen / Unarchive</button
-          ><button id="refreshAdmin" class="secondary">Refresh</button>
+          ><button id="refreshAdmin" class="secondary">Refresh</button
+          ><button id="publicLink" class="secondary">Copy Public Link</button>
         </div>
         <div id="metrics" class="metrics"></div>
         <p id="readonlyNotice" class="warning"></p>
@@ -2328,6 +2341,17 @@ Copy only the contents of this code box into the matching Apps Script file.
       </form>
       <p id="eventEditorMessage" role="status"></p>
     </dialog>
+    <dialog id="publicLinkDialog" aria-labelledby="publicLinkTitle">
+      <h2 id="publicLinkTitle">Public Referral Link</h2>
+      <p>Share this link with organizations requesting meals.</p>
+      <label>Website link<input id="publicLinkValue" type="url" readonly /></label>
+      <div class="actions">
+        <button id="copyPublicLink" type="button">Copy Link</button>
+        <a id="openPublicLink" target="_blank" rel="noopener noreferrer">Open Public Form</a>
+        <button id="closePublicLink" type="button" class="secondary">Close</button>
+      </div>
+      <p id="publicLinkMessage" role="status" aria-live="polite"></p>
+    </dialog>
     <script>
       <?!= include_('AddressClient'); ?>
       <?!= include_('AdminClient'); ?>
@@ -2338,7 +2362,7 @@ Copy only the contents of this code box into the matching Apps Script file.
 
 ## File 15: AdminClient.html
 
-SHA-256: 44b49061d4da2e3dc091402b8dae9a00bb3c2b72a9a614e8037fd6a4743913ef
+SHA-256: 788a506eee277eda86189c0ab1e3c7f5706d13e30fd9cc80894f819d3832644d
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -3098,6 +3122,30 @@ Copy only the contents of this code box into the matching Apps Script file.
   $("refreshAdmin").addEventListener("click", () =>
     task(() => refreshEvents()),
   );
+  async function copyPublicLink() {
+    const input = $("publicLinkValue");
+    try {
+      await navigator.clipboard.writeText(input.value);
+      $("publicLinkMessage").textContent = "Public link copied. Ready to share.";
+    } catch (_) {
+      input.focus();
+      input.select();
+      input.setSelectionRange(0, input.value.length);
+      $("publicLinkMessage").textContent = "Automatic copying is unavailable in this browser. Copy the selected website link above.";
+    }
+  }
+  $("publicLink").addEventListener("click", () =>
+    task(async () => {
+      const { url } = await rpc("publicFormLink");
+      $("publicLinkValue").value = url;
+      $("openPublicLink").href = url;
+      $("publicLinkMessage").textContent = "";
+      $("publicLinkDialog").showModal();
+      await copyPublicLink();
+    }),
+  );
+  $("copyPublicLink").addEventListener("click", () => task(copyPublicLink));
+  $("closePublicLink").addEventListener("click", () => $("publicLinkDialog").close());
   $("createEvent").addEventListener("click", () => {
     $("eventEditor").reset();
     pickupCreate.reset();

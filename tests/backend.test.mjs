@@ -16,6 +16,24 @@ const code = (r, c) => {
   assert.equal(r.ok, false);
   assert.equal(r.error.code, c);
 };
+test("public form sharing requires administrator authorization and an explicit safe website URL", () => {
+  const h = harness();
+  code(h.admin("publicFormLink"), "CONFIG");
+  for (const url of [
+    "javascript:alert(1)",
+    "https://user:password@example.test/",
+    "https://example.test/?page=admin",
+    "https://example.test/?action=events",
+    "https://example.test/ bad",
+  ]) {
+    h.props.MEALS_PUBLIC_FORM_URL = url;
+    code(h.admin("publicFormLink"), "CONFIG");
+  }
+  h.props.MEALS_PUBLIC_FORM_URL = "https://example.test/community-meals/";
+  assert.equal(ok(h.admin("publicFormLink")).url, h.props.MEALS_PUBLIC_FORM_URL);
+  h.state.active = h.state.effective = "unauthorized@example.test";
+  code(h.admin("publicFormLink"), "FORBIDDEN");
+});
 test("20-meal workflow: reservations, bulk approval, edit, reject, restore, reports and archive", () => {
   const h = harness(),
     e = createEvent(h);

@@ -753,6 +753,30 @@
   $("refreshAdmin").addEventListener("click", () =>
     task(() => refreshEvents()),
   );
+  async function copyPublicLink() {
+    const input = $("publicLinkValue");
+    try {
+      await navigator.clipboard.writeText(input.value);
+      $("publicLinkMessage").textContent = "Public link copied. Ready to share.";
+    } catch (_) {
+      input.focus();
+      input.select();
+      input.setSelectionRange(0, input.value.length);
+      $("publicLinkMessage").textContent = "Automatic copying is unavailable in this browser. Copy the selected website link above.";
+    }
+  }
+  $("publicLink").addEventListener("click", () =>
+    task(async () => {
+      const { url } = await rpc("publicFormLink");
+      $("publicLinkValue").value = url;
+      $("openPublicLink").href = url;
+      $("publicLinkMessage").textContent = "";
+      $("publicLinkDialog").showModal();
+      await copyPublicLink();
+    }),
+  );
+  $("copyPublicLink").addEventListener("click", () => task(copyPublicLink));
+  $("closePublicLink").addEventListener("click", () => $("publicLinkDialog").close());
   $("createEvent").addEventListener("click", () => {
     $("eventEditor").reset();
     pickupCreate.reset();

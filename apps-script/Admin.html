@@ -29,7 +29,8 @@
           ><button id="archiveEvent" class="secondary">Archive Event</button
           ><button id="reopenEvent" class="secondary" hidden>
             Reopen / Unarchive</button
-          ><button id="refreshAdmin" class="secondary">Refresh</button>
+          ><button id="refreshAdmin" class="secondary">Refresh</button
+          ><button id="publicLink" class="secondary">Copy Public Link</button>
         </div>
         <div id="metrics" class="metrics"></div>
         <p id="readonlyNotice" class="warning"></p>
@@ -222,6 +223,17 @@
         <div class="actions"><button type="submit">Create Event</button></div>
       </form>
       <p id="eventEditorMessage" role="status"></p>
+    </dialog>
+    <dialog id="publicLinkDialog" aria-labelledby="publicLinkTitle">
+      <h2 id="publicLinkTitle">Public Referral Link</h2>
+      <p>Share this link with organizations requesting meals.</p>
+      <label>Website link<input id="publicLinkValue" type="url" readonly /></label>
+      <div class="actions">
+        <button id="copyPublicLink" type="button">Copy Link</button>
+        <a id="openPublicLink" target="_blank" rel="noopener noreferrer">Open Public Form</a>
+        <button id="closePublicLink" type="button" class="secondary">Close</button>
+      </div>
+      <p id="publicLinkMessage" role="status" aria-live="polite"></p>
     </dialog>
     <script>
       <?!= include_('AddressClient'); ?>
