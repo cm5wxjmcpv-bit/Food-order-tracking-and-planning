@@ -79,3 +79,7 @@ Clicking a suggestion explicitly fills the address field and validates that sele
 ## Button feedback
 
 All buttons receive a brief visible click acknowledgement. Async admin actions, form saves, public submission, new-request refresh, and address checks show a spinner plus Loading while their operation runs. The initiating button rejects repeated clicks until completion. Labels and accessibility attributes restore on success, cancellation or error; backend-rendered disabled states are preserved. Keyboard form submission uses its submit button. Reduced-motion users receive a static indicator. Browser print and actions that immediately open/close a section respond directly without invented wait times.
+
+## Delivery route readiness
+
+Reviewed addresses do not automatically approve an official stop order. When all addresses are reviewed, the route screen explicitly asks the admin to check the sequence and click Save Manual Order; successful saving enables printing. Automatic optimization remains separately configured and is not enabled by this patch. The screen shows why Optimize Route is unavailable, including disabled integration, unreviewed pickup/recipient addresses, no approved stops, or read-only events.

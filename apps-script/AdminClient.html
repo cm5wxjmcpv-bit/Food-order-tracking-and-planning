@@ -546,27 +546,36 @@
     $("routeDate").textContent = dateLabel(route.deliveryDate);
     $("routeSummary").textContent =
       route.stops.length + " Stops · " + route.totalMeals + " Meals";
-    $("routeStatus").textContent = routeUnsaved
-      ? "Order changed. Save Manual Order before printing."
-      : route.isFinal
-        ? "Official delivery order saved."
-        : "Route is not final. " +
-          (route.unresolved.length
-            ? route.unresolved.length + " recipient address(es) need review. "
-            : "") +
-          (!addressReviewed(route.startAddressStatus)
-            ? "Pickup address needs review. "
-            : "") +
-          "Review addresses and save or optimize the route.";
-    $("printRoute").disabled = routeUnsaved || !route.isFinal;
-    $("optimizeRoute").disabled =
-      readonly() ||
-      !route.mapsEnabled ||
-      route.unresolved.length > 0 ||
-      !addressReviewed(route.startAddressStatus);
-    $("optimizeRoute").title = route.mapsEnabled
-      ? ""
-      : "Maps APIs are disabled; use manual ordering.";
+    const addressesReady = !route.unresolved.length && addressReviewed(route.startAddressStatus);
+    $("routeStatus").textContent = !route.stops.length
+      ? "Approve at least one recipient to build a delivery route."
+      : routeUnsaved
+        ? "Order changed. Click Save Manual Order to save your changes before printing."
+        : route.isFinal
+          ? "Official delivery order saved. You can print the delivery sheet."
+          : addressesReady
+            ? "All addresses are reviewed. Check the stop order, then click Save Manual Order to finalize the route and enable printing."
+            : "Route is not final. " +
+              (route.unresolved.length
+                ? route.unresolved.length + " recipient address(es) need review. "
+                : "") +
+              (!addressReviewed(route.startAddressStatus)
+                ? "Pickup address needs review in Event Settings. "
+                : "") +
+              "Review the addresses, then click Save Manual Order to finalize the route.";
+    $("printRoute").disabled = !route.stops.length || routeUnsaved || !route.isFinal;
+    const optimizationReason = readonly()
+      ? "This event is read-only. Reopen / Unarchive it before changing the route."
+      : !route.mapsEnabled
+        ? "Automatic route optimization is off. Use Move Up / Move Down or drag stops into order, then click Save Manual Order. You can print a reviewed, saved route without automatic optimization."
+        : !route.stops.length
+          ? "Approve at least one recipient before optimizing."
+          : !addressesReady
+            ? "Review the pickup address and every recipient address before optimizing."
+            : "Google route optimization is enabled in configuration. You may optimize or save a manual order.";
+    $("routingAvailability").textContent = optimizationReason;
+    $("optimizeRoute").disabled = readonly() || !route.mapsEnabled || !route.stops.length || !addressesReady;
+    $("optimizeRoute").title = optimizationReason;
     $("saveRoute").disabled = readonly() || !route.stops.length;
     $("routeStops").replaceChildren();
     route.stops.forEach((r) => {
