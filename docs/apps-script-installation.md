@@ -1707,7 +1707,7 @@ function publicAddressCall_(action, p) {
 
 ## File 12: Routing.gs
 
-SHA-256: 19ac962ab52c89ff4d8896fdf800a635b4f5db48ff501fe661e5f53c557d8823
+SHA-256: cd9302f3e244331da003de45afbbb57635005f2032cf69593a84fd82a050a874
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -1840,7 +1840,8 @@ function optimize_(p) {
       "ADDRESS_REVIEW",
       "An address could not be reconfirmed. Review the addresses before routing.",
     );
-  const start = new Date(Date.now() + 60000),
+  // Route Optimization rejects nonzero timestamp nanos (millisecond fractions).
+  const start = new Date(Math.floor(Date.now() / 1000) * 1000 + 60000),
     end = new Date(start.getTime() + 86400000);
   const payload = {
     model: {

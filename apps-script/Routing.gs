@@ -126,7 +126,8 @@ function optimize_(p) {
       "ADDRESS_REVIEW",
       "An address could not be reconfirmed. Review the addresses before routing.",
     );
-  const start = new Date(Date.now() + 60000),
+  // Route Optimization rejects nonzero timestamp nanos (millisecond fractions).
+  const start = new Date(Math.floor(Date.now() / 1000) * 1000 + 60000),
     end = new Date(start.getTime() + 86400000);
   const payload = {
     model: {

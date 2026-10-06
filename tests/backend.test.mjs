@@ -377,7 +377,17 @@ test("simulated address and optimizer responses run outside lock and detect rout
   h.props.MEALS_MAPS_LIVE_ENABLED = "true";
   h.props.MEALS_ADDRESS_API_KEY = "synthetic-only";
   h.props.MEALS_CLOUD_PROJECT_ID = "synthetic-only";
-  h.state.fetch = (url, options) => ({
+  h.ctx.Date = class extends Date { static now() { return 1791288000123; } };
+  h.state.fetch = (url, options) => {
+    if (url.includes("routeoptimization")) {
+      const sent = JSON.parse(options.payload);
+      for (const value of [sent.model.globalStartTime, sent.model.globalEndTime])
+        assert.equal(new Date(value).getTime() % 1000, 0, "Google routing requires whole-second timestamps");
+      assert.equal(sent.model.vehicles.length, 1);
+      assert.equal(sent.model.vehicles[0].endLocation, undefined, "No return-to-pickup leg");
+      assert.equal(sent.model.shipments.length, 2, "Preserve every recipient stop");
+    }
+    return {
     getResponseCode: () => 200,
     getContentText: () =>
       url.includes("addressvalidation")
@@ -393,7 +403,8 @@ test("simulated address and optimizer responses run outside lock and detect rout
         : JSON.stringify({
             routes: [{ visits: [{ shipmentIndex: 1 }, { shipmentIndex: 0 }] }],
           }),
-  });
+  };
+  };
   for (const r of h.get("RECIPIENTS"))
     ok(
       h.admin("verifyAddress", {
