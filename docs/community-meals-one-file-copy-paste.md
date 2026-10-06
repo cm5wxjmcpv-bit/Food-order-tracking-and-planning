@@ -3,6 +3,7 @@
 Copy the entire contents of this single code box into Code.gs. This includes the backend and complete admin interface. No setup or migration function should be run. Address services and routing remain disabled until separately configured.
 
 ```javascript
+// Build marker: COMMUNITY-MEALS-20261006-SUBMISSION-CONFIRMATION
 /* Community Meals V1 — generated from the modular files in this commit.
    Install the ENTIRE file as Code.gs. No other .gs/.html files required.
    Address services and route optimization default to disabled.
@@ -1791,6 +1792,8 @@ function doGet(e) {
       .addMetaTag("viewport", "width=device-width, initial-scale=1");
   }
   const action = e && e.parameter && e.parameter.action;
+  if (action === "submissionReceipt")
+    return json_(safeBoundary_(() => publicSubmissionReceipt_(e.parameter.submissionId)));
   return json_(
     action === "events"
       ? safeBoundary_(publicEvents_)
@@ -1802,6 +1805,22 @@ function doGet(e) {
           },
         },
   );
+}
+function publicSubmissionReceipt_(submissionId) {
+  // Possession of an unguessable submission UUID is required. Return only the
+  // same minimal public receipt; never referral/recipient/contact information.
+  const id = String(submissionId || "");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+    fail_("INVALID", "A valid submission ID is required.");
+  const s = load_(), record = s.SUBMISSIONS.find(r => r.SubmissionID === id);
+  if (!record) return { receipt: null };
+  const referral = s.REFERRALS.find(r => r.ReferralID === record.ReferralID);
+  if (!referral || referral.SubmittedByAdmin !== false) return { receipt: null };
+  const receipt = JSON.parse(record.Receipt);
+  return { receipt: {
+    referralId: receipt.referralId, eventName: receipt.eventName,
+    meals: receipt.meals, recipients: receipt.recipients, status: "Pending"
+  } };
 }
 function doPost(e) {
   return json_(

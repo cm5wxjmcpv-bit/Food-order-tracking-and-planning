@@ -104,48 +104,49 @@
         : "";
     totals();
   }
-  async function api(payload) {
+  async function api(payload, submissionId) {
     const url = window.MEALS_CONFIG?.publicApiUrl;
     if (!url)
       throw new Error(
         "This form is awaiting program setup. Please contact the referring program.",
       );
     let response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), submissionId ? 8000 : 12000);
     try {
       response = await fetch(
-        payload ? url : url + "?action=events",
+        payload ? url + "?request=" + Date.now() : submissionId
+          ? url + "?action=submissionReceipt&submissionId=" + encodeURIComponent(submissionId) + "&request=" + Date.now()
+          : url + "?action=events&request=" + Date.now(),
         payload
           ? {
               method: "POST",
               headers: { "Content-Type": "text/plain;charset=utf-8" },
               body: JSON.stringify(payload),
+              cache: "no-store", credentials: "omit", signal: controller.signal,
             }
-          : { cache: "no-store" },
+          : { cache: "no-store", credentials: "omit", signal: controller.signal },
       );
-    } catch (_) {
-      throw new Error(
-        "The service could not be reached. Please retry with the same information.",
-      );
+      if (!response.ok) throw new Error("Response unavailable");
+      const result = await response.json();
+      if (!result.ok) {
+        const error = new Error(
+          result.error?.message ||
+            "Your request could not be saved. Please try again.",
+        );
+        error.code = result.error?.code;
+        error.uncertain = error.code === "UNAVAILABLE";
+        throw error;
+      }
+      return result.data;
+    } catch (error) {
+      if (error.code) throw error;
+      const unavailable = new Error("The service could not be reached.");
+      unavailable.uncertain = true;
+      throw unavailable;
+    } finally {
+      clearTimeout(timeout);
     }
-    if (!response.ok)
-      throw new Error("The service could not be reached. Please try again.");
-    let result;
-    try {
-      result = await response.json();
-    } catch (_) {
-      throw new Error(
-        "The service returned an unreadable response. Please retry with the same information.",
-      );
-    }
-    if (!result.ok) {
-      const error = new Error(
-        result.error?.message ||
-          "Your request could not be saved. Please try again.",
-      );
-      error.code = result.error?.code;
-      throw error;
-    }
-    return result.data;
   }
   async function load(preferred) {
     try {
@@ -250,10 +251,15 @@
             deliveryDate: selected.deliveryDate,
           },
         });
-      const receipt = await api({
+      const request = {
         ...payload,
         action: "submit",
         submissionId: pending.id,
+      };
+      const receipt = await MealSubmission.confirm({
+        send: () => api(request),
+        check: () => api(null, request.submissionId),
+        onChecking: () => { $("submissionMessage").textContent = "Checking whether your request was saved… Please keep this page open."; },
       });
       retain({ ...pending, receipt });
       showReceipt(receipt);
@@ -262,8 +268,7 @@
       if (["INVALID", "CAPACITY", "CLOSED", "FORBIDDEN"].includes(error.code))
         retain(null);
       $("submissionMessage").textContent =
-        error.message +
-        " If the result is uncertain, retry with the same information.";
+        error.message;
     } finally {
       busy = false;
       finishFeedback();

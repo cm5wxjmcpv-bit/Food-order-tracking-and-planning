@@ -133,7 +133,7 @@ Installation is a manual action by the user. No script source was uploaded or we
 
 ## File 1: Code.gs
 
-SHA-256: 4c869b2b0496efa45c702646f70760332fa5c566471a168ec285aea9b1f4fc73
+SHA-256: 83b7e36495ee2df9005939e186bd631a6cbf3d08f42f711687e92705f645f3d1
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -157,6 +157,8 @@ function doGet(e) {
       .addMetaTag("viewport", "width=device-width, initial-scale=1");
   }
   const action = e && e.parameter && e.parameter.action;
+  if (action === "submissionReceipt")
+    return json_(safeBoundary_(() => publicSubmissionReceipt_(e.parameter.submissionId)));
   return json_(
     action === "events"
       ? safeBoundary_(publicEvents_)
@@ -168,6 +170,22 @@ function doGet(e) {
           },
         },
   );
+}
+function publicSubmissionReceipt_(submissionId) {
+  // Possession of an unguessable submission UUID is required. Return only the
+  // same minimal public receipt; never referral/recipient/contact information.
+  const id = String(submissionId || "");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+    fail_("INVALID", "A valid submission ID is required.");
+  const s = load_(), record = s.SUBMISSIONS.find(r => r.SubmissionID === id);
+  if (!record) return { receipt: null };
+  const referral = s.REFERRALS.find(r => r.ReferralID === record.ReferralID);
+  if (!referral || referral.SubmittedByAdmin !== false) return { receipt: null };
+  const receipt = JSON.parse(record.Receipt);
+  return { receipt: {
+    referralId: receipt.referralId, eventName: receipt.eventName,
+    meals: receipt.meals, recipients: receipt.recipients, status: "Pending"
+  } };
 }
 function doPost(e) {
   return json_(

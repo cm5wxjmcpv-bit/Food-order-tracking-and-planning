@@ -16,6 +16,26 @@ const code = (r, c) => {
   assert.equal(r.ok, false);
   assert.equal(r.error.code, c);
 };
+test("public receipt recovery confirms only a known public submission without returning protected data or writing", () => {
+  const h = harness(), e = createEvent(h), p = payload(e.EventID);
+  const receipt = ok(h.public(p));
+  h.state.active = h.state.effective = "";
+  const before = h.snapshot();
+  const read = id => JSON.parse(h.ctx.doGet({ parameter: { action: "submissionReceipt", submissionId: id } }).text);
+  assert.deepEqual(ok(read(p.submissionId)).receipt, receipt);
+  assert.equal(ok(read(crypto.randomUUID())).receipt, null);
+  code(read("not-a-uuid"), "INVALID");
+  code(read(""), "INVALID");
+  assert.equal(h.snapshot(), before);
+  assert.deepEqual(Object.keys(ok(read(p.submissionId)).receipt).sort(), ["eventName", "meals", "recipients", "referralId", "status"]);
+});
+test("public receipt lookup does not reveal admin-created requests", () => {
+  const h = harness(), e = createEvent(h), p = payload(e.EventID, [1]);
+  ok(h.admin("createReferral", p));
+  h.state.active = h.state.effective = "";
+  const response = JSON.parse(h.ctx.doGet({parameter: {action: "submissionReceipt", submissionId: p.submissionId}}).text);
+  assert.equal(ok(response).receipt, null);
+});
 test("public form sharing requires administrator authorization and an explicit safe website URL", () => {
   const h = harness();
   code(h.admin("publicFormLink"), "CONFIG");
