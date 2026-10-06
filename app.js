@@ -234,6 +234,7 @@
       return;
     }
     busy = true;
+    const finishFeedback = MealButtonFeedback.begin(e.submitter || $("submitRequest"));
     form.inert = true;
     totals();
     $("submissionMessage").textContent = "Submitting…";
@@ -278,11 +279,14 @@
         " If the result is uncertain, retry with the same information.";
     } finally {
       busy = false;
+      finishFeedback();
       form.inert = false;
       totals();
     }
   });
-  $("newRequest").addEventListener("click", () => {
+  $("newRequest").addEventListener("click", async () => {
+    const finishFeedback = MealButtonFeedback.begin($("newRequest"));
+    try {
     retain(null);
     form.reset();
     container.replaceChildren();
@@ -290,7 +294,8 @@
     form.hidden = false;
     $("successPanel").hidden = true;
     $("submissionMessage").textContent = "";
-    load();
+    await load();
+    } finally { finishFeedback(); }
   });
   add();
   if (pending?.receipt) showReceipt(pending.receipt);

@@ -1,5 +1,37 @@
 /* Shared public/admin address controls. Address data and receipts stay in memory. */
 "use strict";
+window.MealButtonFeedback = (() => {
+  const active = new WeakMap();
+  let clicked = null;
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest?.("button");
+    if (!button) return;
+    if (active.has(button)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    clicked = button;
+    button.setAttribute("data-click-feedback", "true");
+    setTimeout(() => button.removeAttribute("data-click-feedback"), 250);
+    setTimeout(() => { if (clicked === button) clicked = null; }, 0);
+  }, true);
+  function begin(button) {
+    if (!button || active.has(button)) return () => {};
+    const before = ["aria-busy", "aria-disabled", "aria-label"].map(name => [name, button.getAttribute(name)]);
+    active.set(button, true);
+    button.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-disabled", "true");
+    button.setAttribute("aria-label", button.textContent.trim() + " — Loading");
+    return () => {
+      active.delete(button);
+      for (const [name, value] of before)
+        if (value == null) button.removeAttribute(name);
+        else button.setAttribute(name, value);
+    };
+  }
+  return { begin, current: () => clicked };
+})();
 window.MealAddresses = (() => {
   const states = new WeakMap();
   let counter = 0;
@@ -160,6 +192,7 @@ window.MealAddresses = (() => {
       const original = input.value.trim(),
         rev = revision;
       if (!original) return true;
+      const finishFeedback = MealButtonFeedback.begin(check);
       clear();
       clearTimeout(timer);
       timer = null;
@@ -218,6 +251,7 @@ window.MealAddresses = (() => {
         return await running;
       } finally {
         running = null;
+        finishFeedback();
       }
     }
     function selectSuggestion(address) {

@@ -61,9 +61,10 @@
         .adminCall(action, p),
     );
   }
-  async function task(fn) {
+  async function task(fn, trigger = MealButtonFeedback.current()) {
     if (busy) return;
     busy = true;
+    const finishFeedback = MealButtonFeedback.begin(trigger);
     $("adminEvents").disabled = true;
     $("showArchived").disabled = true;
     $("adminMessage").textContent = "Working…";
@@ -74,6 +75,7 @@
       $("adminMessage").textContent = e.message;
     } finally {
       busy = false;
+      finishFeedback();
       $("adminEvents").disabled = false;
       $("showArchived").disabled = false;
     }
@@ -787,7 +789,7 @@
         $("editorMessage").textContent = err.message;
         throw err;
       }
-    });
+    }, e.submitter || e.target.querySelector('button[type="submit"]'));
   });
   $("eventEditor").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -801,7 +803,7 @@
         $("eventEditorMessage").textContent = err.message;
         throw err;
       }
-    });
+    }, e.submitter || e.target.querySelector('button[type="submit"]'));
   });
   $("settingsForm").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -814,7 +816,7 @@
         version: d.Version,
       });
       await refreshEvents(d.EventID);
-    });
+    }, e.submitter || e.target.querySelector('button[type="submit"]'));
   });
   $("archiveEvent").addEventListener("click", () =>
     task(async () => {

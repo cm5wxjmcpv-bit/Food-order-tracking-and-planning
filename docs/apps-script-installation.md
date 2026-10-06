@@ -2300,7 +2300,7 @@ Copy only the contents of this code box into the matching Apps Script file.
 
 ## File 15: AdminClient.html
 
-SHA-256: 7a6ed5dfe3e66cf134ff34fa61ebef51edd00272219341e1650ed1cd58d2cbda
+SHA-256: 54f6d9e5da0e398e752330c57d17b4cbb85eb7936165d73ea891824129cfee79
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -2368,9 +2368,10 @@ Copy only the contents of this code box into the matching Apps Script file.
         .adminCall(action, p),
     );
   }
-  async function task(fn) {
+  async function task(fn, trigger = MealButtonFeedback.current()) {
     if (busy) return;
     busy = true;
+    const finishFeedback = MealButtonFeedback.begin(trigger);
     $("adminEvents").disabled = true;
     $("showArchived").disabled = true;
     $("adminMessage").textContent = "Working…";
@@ -2381,6 +2382,7 @@ Copy only the contents of this code box into the matching Apps Script file.
       $("adminMessage").textContent = e.message;
     } finally {
       busy = false;
+      finishFeedback();
       $("adminEvents").disabled = false;
       $("showArchived").disabled = false;
     }
@@ -3094,7 +3096,7 @@ Copy only the contents of this code box into the matching Apps Script file.
         $("editorMessage").textContent = err.message;
         throw err;
       }
-    });
+    }, e.submitter || e.target.querySelector('button[type="submit"]'));
   });
   $("eventEditor").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -3108,7 +3110,7 @@ Copy only the contents of this code box into the matching Apps Script file.
         $("eventEditorMessage").textContent = err.message;
         throw err;
       }
-    });
+    }, e.submitter || e.target.querySelector('button[type="submit"]'));
   });
   $("settingsForm").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -3121,7 +3123,7 @@ Copy only the contents of this code box into the matching Apps Script file.
         version: d.Version,
       });
       await refreshEvents(d.EventID);
-    });
+    }, e.submitter || e.target.querySelector('button[type="submit"]'));
   });
   $("archiveEvent").addEventListener("click", () =>
     task(async () => {
@@ -3216,13 +3218,45 @@ Copy only the contents of this code box into the matching Apps Script file.
 
 ## File 16: AddressClient.html
 
-SHA-256: fddaa7937ef17ffbb84d878d514ef66632d27e4b72397d6ffac6c66e253a3676
+SHA-256: c154a5e62901bf8498eed59987b50880d9cacd854ae29ccdb7f4c00a524914d8
 
 Copy only the contents of this code box into the matching Apps Script file.
 
 ```javascript
 /* Shared public/admin address controls. Address data and receipts stay in memory. */
 "use strict";
+window.MealButtonFeedback = (() => {
+  const active = new WeakMap();
+  let clicked = null;
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest?.("button");
+    if (!button) return;
+    if (active.has(button)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    clicked = button;
+    button.setAttribute("data-click-feedback", "true");
+    setTimeout(() => button.removeAttribute("data-click-feedback"), 250);
+    setTimeout(() => { if (clicked === button) clicked = null; }, 0);
+  }, true);
+  function begin(button) {
+    if (!button || active.has(button)) return () => {};
+    const before = ["aria-busy", "aria-disabled", "aria-label"].map(name => [name, button.getAttribute(name)]);
+    active.set(button, true);
+    button.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-disabled", "true");
+    button.setAttribute("aria-label", button.textContent.trim() + " — Loading");
+    return () => {
+      active.delete(button);
+      for (const [name, value] of before)
+        if (value == null) button.removeAttribute(name);
+        else button.setAttribute(name, value);
+    };
+  }
+  return { begin, current: () => clicked };
+})();
 window.MealAddresses = (() => {
   const states = new WeakMap();
   let counter = 0;
@@ -3383,6 +3417,7 @@ window.MealAddresses = (() => {
       const original = input.value.trim(),
         rev = revision;
       if (!original) return true;
+      const finishFeedback = MealButtonFeedback.begin(check);
       clear();
       clearTimeout(timer);
       timer = null;
@@ -3441,6 +3476,7 @@ window.MealAddresses = (() => {
         return await running;
       } finally {
         running = null;
+        finishFeedback();
       }
     }
     function selectSuggestion(address) {
@@ -3597,7 +3633,7 @@ window.MealAddresses = (() => {
 
 ## File 17: AdminStyles.html
 
-SHA-256: eef9ffbb906ce1e5334d5b08fcadd7222a05d3b147c81c29de8329c5c73bd0c2
+SHA-256: cc0abcb2ae347e3adc03932c5c5c7cc2a800204d5bb56e1a27cdeb7db2010bf5
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -4075,6 +4111,17 @@ dialog::backdrop {
 .request-recipient-list li { padding: .65rem .25rem; border-bottom: 1px solid #dbe2e8; overflow-wrap: anywhere; }
 .request-recipient-list li:last-child { border-bottom: 0; }
 .request-recipient-list p { margin: .25rem 0; }
+
+button[data-click-feedback="true"] { outline: 3px solid #78a9da; outline-offset: 2px; }
+button[aria-busy="true"] { cursor: wait; opacity: .8; }
+button[aria-busy="true"]::before {
+  content: ""; display: inline-block; width: .85em; height: .85em;
+  margin-right: .5em; border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; vertical-align: -.1em; animation: meal-button-spin .8s linear infinite;
+}
+button[aria-busy="true"]::after { content: " — Loading…"; }
+@keyframes meal-button-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { button[aria-busy="true"]::before { animation: none; } }
 ```
 
 ## File 18: appsscript.json

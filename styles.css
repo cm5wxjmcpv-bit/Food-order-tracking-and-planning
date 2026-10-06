@@ -471,3 +471,14 @@ dialog::backdrop {
 .request-recipient-list li { padding: .65rem .25rem; border-bottom: 1px solid #dbe2e8; overflow-wrap: anywhere; }
 .request-recipient-list li:last-child { border-bottom: 0; }
 .request-recipient-list p { margin: .25rem 0; }
+
+button[data-click-feedback="true"] { outline: 3px solid #78a9da; outline-offset: 2px; }
+button[aria-busy="true"] { cursor: wait; opacity: .8; }
+button[aria-busy="true"]::before {
+  content: ""; display: inline-block; width: .85em; height: .85em;
+  margin-right: .5em; border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; vertical-align: -.1em; animation: meal-button-spin .8s linear infinite;
+}
+button[aria-busy="true"]::after { content: " — Loading…"; }
+@keyframes meal-button-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { button[aria-busy="true"]::before { animation: none; } }

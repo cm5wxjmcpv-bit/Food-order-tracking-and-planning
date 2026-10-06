@@ -12,21 +12,25 @@ function client() {
     constructor(tag) {
       this.tag = tag; this.children = []; this.handlers = {}; this.value = '';
       this.isConnected = true; this.classList = { contains: () => false };
-      this.textContent = ''; this.disabled = false;
+      this.textContent = ''; this.disabled = false; this.attributes = new Map();
     }
     append(...items) { this.children.push(...items); for (const item of items) item.parentElement = this; }
     replaceWith(other) { this.replacement = other; }
     replaceChildren() { this.children = []; }
-    setAttribute() {}
+    setAttribute(name, value) { this.attributes.set(name, value); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
+    removeAttribute(name) { this.attributes.delete(name); }
     addEventListener(name, handler) { this.handlers[name] = handler; }
     focus() { document.activeElement = this; this.handlers.focus?.(); }
   }
-  const document = { createElement: tag => new Element(tag), activeElement: null };
-  const ctx = { document, window: {}, crypto, Date: { now: () => now },
+  const document = { createElement: tag => new Element(tag), activeElement: null, addEventListener() {} };
+  const ctx = { document, window: {}, crypto, queueMicrotask, Date: { now: () => now },
     setTimeout: (fn, delay) => { timers.set(++next, { at: now + delay, fn }); return next; },
     clearTimeout: id => timers.delete(id),
   };
-  vm.runInNewContext(fs.readFileSync('address-entry.js', 'utf8'), ctx);
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync('address-entry.js', 'utf8'), ctx);
+  ctx.MealButtonFeedback = ctx.window.MealButtonFeedback;
   const label = new Element('label'), input = new Element('input'); label.append(input);
   const requests = [], pending = []; let configCalls = 0;
   const state = ctx.window.MealAddresses.attach(input, async (action, payload) => {
