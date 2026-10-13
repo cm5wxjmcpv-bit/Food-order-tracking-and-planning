@@ -1,19 +1,13 @@
 function referralMeals_(s, id) {
-  return s.RECIPIENTS.filter((r) => r.ReferralID === id).reduce(
+  return linkedRecipients_(s).filter((r) => r.ReferralID === id).reduce(
     (n, r) => n + Number(r.MealCount),
     0,
   );
 }
 function submit_(p, adminEmail) {
   const canonical = canonicalSubmission_(p, Boolean(adminEmail)),
-    submissionId = id_(p.submissionId),
+    submissionId = submissionId_(p.submissionId),
     hash = fingerprint_(canonical);
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      submissionId,
-    )
-  )
-    fail_("INVALID", "A valid submission ID is required.");
   return locked_((s) => {
     if (adminEmail) {
       if (admin_(s) !== adminEmail)
@@ -26,7 +20,7 @@ function submit_(p, adminEmail) {
           "IDEMPOTENCY",
           "This submission ID was already used with different information.",
         );
-      return JSON.parse(prior.Receipt);
+      return savedSubmissionReceipt_(s, prior);
     }
     const e = byId_(s, "EVENTS", canonical.EventID);
     if (adminEmail) editable_(e);

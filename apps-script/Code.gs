@@ -1,3 +1,4 @@
+const MEALS_BACKEND_VERSION = "2026-10-13-integrity-recovery-v1";
 function include_(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
@@ -34,14 +35,12 @@ function doGet(e) {
 function publicSubmissionReceipt_(submissionId) {
   // Possession of an unguessable submission UUID is required. Return only the
   // same minimal public receipt; never referral/recipient/contact information.
-  const id = String(submissionId || "");
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
-    fail_("INVALID", "A valid submission ID is required.");
+  const id = submissionId_(submissionId);
   const s = load_(), record = s.SUBMISSIONS.find(r => r.SubmissionID === id);
   if (!record) return { receipt: null };
-  const referral = s.REFERRALS.find(r => r.ReferralID === record.ReferralID);
-  if (!referral || referral.SubmittedByAdmin !== false) return { receipt: null };
-  const receipt = JSON.parse(record.Receipt);
+  const referral = submissionReferral_(s, record);
+  if (referral.SubmittedByAdmin !== false) return { receipt: null };
+  const receipt = savedSubmissionReceipt_(s, record);
   return { receipt: {
     referralId: receipt.referralId, eventName: receipt.eventName,
     meals: receipt.meals, recipients: receipt.recipients, status: "Pending"
@@ -94,6 +93,7 @@ function adminCall(action, p) {
       return {
         email: auth.email,
         environment: properties_().getProperty("MEALS_ENV"),
+        backendVersion: MEALS_BACKEND_VERSION,
       };
     if (action === "events")
       return auth.state.EVENTS.slice().sort((a, b) =>

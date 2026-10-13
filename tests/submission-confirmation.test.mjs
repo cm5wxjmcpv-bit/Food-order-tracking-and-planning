@@ -65,3 +65,56 @@ test("Safari numeric AbortError triggers receipt recovery instead of escaping as
   assert.equal(result, receipt);
   assert.equal(calls, 2);
 });
+test("standalone receipt recovery uses only reads and surfaces damaged-record errors immediately", async () => {
+  const c = controller();
+  assert.equal(await c.recover({check: async () => ({receipt})}), receipt);
+  let reads = 0;
+  await assert.rejects(c.recover({check: async () => {
+    reads++;
+    throw Object.assign(new Error("Contact administrator"), {code: "INTEGRITY"});
+  }, pause: async () => { assert.fail("An integrity error must not be retried"); }}), e => e.code === "INTEGRITY");
+  assert.equal(reads, 1);
+  await assert.rejects(c.confirm({send: async () => {throw {uncertain: true};}, check: async () => {
+    throw Object.assign(new Error("Contact administrator"), {code: "INTEGRITY"});
+  }}), e => e.code === "INTEGRITY");
+});
+test("reload recovery restores a saved receipt without requiring recipient re-entry or issuing a POST", async () => {
+  const source = fs.readFileSync("app.js", "utf8");
+  const nodes = new Map(["submissionMessage", "successPanel", "successMessage", "receiptId"].map(id => [id, {hidden: true, textContent: ""}]));
+  const pending = {id: "retained-submission", fingerprint: "retained-hash", event: {eventId: "retained-event"}};
+  let reads = 0;
+  const ctx = vm.createContext({busy: false, pending, form: {inert: false, hidden: false},
+    $: id => nodes.get(id), totals: () => {}, MealSubmission: controller(),
+    api: async (payload, id) => {assert.equal(payload, null);assert.equal(id, pending.id);reads++;return {receipt};},
+    retain: value => {ctx.pending = value;}, load: async id => {assert.equal(id, pending.event.eventId);}});
+  vm.runInContext(source.slice(source.indexOf("  function showReceipt("), source.indexOf('  $("checkSavedRequest").addEventListener')), ctx);
+  await ctx.recoverPending();
+  assert.equal(reads, 1);
+  assert.equal(ctx.pending.id, pending.id);
+  assert.equal(ctx.pending.receipt, receipt);
+  assert.equal(ctx.form.hidden, true);
+  assert.equal(ctx.form.inert, false);
+  assert.equal(ctx.busy, false);
+  assert.equal(nodes.get("successPanel").hidden, false);
+});
+test("availability refresh disables sending during a read and preserves unsaved recipient fields on failure", async () => {
+  const source = fs.readFileSync("app.js", "utf8");
+  const nodes = new Map(["eventMessage", "availabilityChecked"].map(id => [id, {textContent: ""}]));
+  const form = {elements: {organizationName: {value: "Unsaved organization"}}};
+  let release;
+  const gate = new Promise(resolve => {release = resolve;});
+  let calls = 0;
+  const ctx = vm.createContext({loading: false, selected: {eventId: "old-event"}, form,
+    $: id => nodes.get(id), totals: () => {}, api: async () => {calls++;await gate;throw new Error("network unavailable");}});
+  vm.runInContext(source.slice(source.indexOf("  async function load("), source.indexOf("  async function hash(")), ctx);
+  const first = ctx.load();
+  assert.equal(ctx.loading, true);
+  await ctx.load();
+  assert.equal(calls, 1);
+  release();
+  await first;
+  assert.equal(ctx.loading, false);
+  assert.equal(ctx.selected, null);
+  assert.equal(form.elements.organizationName.value, "Unsaved organization");
+  assert.match(nodes.get("availabilityChecked").textContent, /could not be refreshed/);
+});

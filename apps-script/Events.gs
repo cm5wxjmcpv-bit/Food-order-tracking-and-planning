@@ -5,7 +5,7 @@ function reserved_(s, eventId) {
         r.EventID === eventId && ["Pending", "Approved"].includes(r.Status),
     ).map((r) => r.ReferralID),
   );
-  return s.RECIPIENTS.filter((r) => active.has(r.ReferralID)).reduce(
+  return linkedRecipients_(s).filter((r) => r.EventID === eventId && active.has(r.ReferralID)).reduce(
     (n, r) => n + Number(r.MealCount),
     0,
   );

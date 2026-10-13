@@ -7,8 +7,8 @@
     <link rel="stylesheet" href="styles.css?v=20261006-public-v1" />
     <script src="config.js?v=20261006-public-v1" defer></script>
     <script src="address-entry.js?v=20261006-public-v1" defer></script>
-    <script src="submission-confirmation.js?v=20261006-confirmation-v1" defer></script>
-    <script src="app.js?v=20261006-confirmation-v2" defer></script>
+    <script src="submission-confirmation.js?v=20261013-recovery-v1" defer></script>
+    <script src="app.js?v=20261013-recovery-v1" defer></script>
   </head>
   <body>
     <header class="site-header">
@@ -30,6 +30,8 @@
           <strong id="remaining">—</strong> meals remaining
         </p>
         <p id="eventMessage" role="status">Loading events…</p>
+        <button type="button" id="refreshAvailability" class="secondary">Refresh Availability</button>
+        <p id="availabilityChecked" class="hint" role="status"></p>
       </section>
       <form id="referralForm">
         <fieldset>
@@ -86,6 +88,7 @@
           Submit Meal Request
         </button>
         <p id="submissionMessage" role="status" aria-live="polite"></p>
+        <button type="button" id="checkSavedRequest" class="secondary" hidden>Check Saved Request</button>
       </form>
       <section id="successPanel" class="event-panel" hidden>
         <h2>Meal Request Submitted</h2>

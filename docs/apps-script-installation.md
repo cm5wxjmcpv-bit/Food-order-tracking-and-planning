@@ -133,11 +133,12 @@ Installation is a manual action by the user. No script source was uploaded or we
 
 ## File 1: Code.gs
 
-SHA-256: 83b7e36495ee2df9005939e186bd631a6cbf3d08f42f711687e92705f645f3d1
+SHA-256: e8e00ed6b88eac46aa1a5025a4cdba100c2bb3604c20641e53c3307fdea8c2bb
 
 Copy only the contents of this code box into the matching Apps Script file.
 
 ```javascript
+const MEALS_BACKEND_VERSION = "2026-10-13-integrity-recovery-v1";
 function include_(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
@@ -174,14 +175,12 @@ function doGet(e) {
 function publicSubmissionReceipt_(submissionId) {
   // Possession of an unguessable submission UUID is required. Return only the
   // same minimal public receipt; never referral/recipient/contact information.
-  const id = String(submissionId || "");
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
-    fail_("INVALID", "A valid submission ID is required.");
+  const id = submissionId_(submissionId);
   const s = load_(), record = s.SUBMISSIONS.find(r => r.SubmissionID === id);
   if (!record) return { receipt: null };
-  const referral = s.REFERRALS.find(r => r.ReferralID === record.ReferralID);
-  if (!referral || referral.SubmittedByAdmin !== false) return { receipt: null };
-  const receipt = JSON.parse(record.Receipt);
+  const referral = submissionReferral_(s, record);
+  if (referral.SubmittedByAdmin !== false) return { receipt: null };
+  const receipt = savedSubmissionReceipt_(s, record);
   return { receipt: {
     referralId: receipt.referralId, eventName: receipt.eventName,
     meals: receipt.meals, recipients: receipt.recipients, status: "Pending"
@@ -234,6 +233,7 @@ function adminCall(action, p) {
       return {
         email: auth.email,
         environment: properties_().getProperty("MEALS_ENV"),
+        backendVersion: MEALS_BACKEND_VERSION,
       };
     if (action === "events")
       return auth.state.EVENTS.slice().sort((a, b) =>
@@ -281,7 +281,7 @@ function publicFormLink_() {
 
 ## File 2: Validation.gs
 
-SHA-256: 8f40054c7d50f51282cf0bed1652a011c6d582dc74823b749f2888c02ce17f89
+SHA-256: 86388ebb396e7ca9d6181585d41b2f7dda47b92e697f6a305a97bd9ba3cd6971
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -320,6 +320,12 @@ function integer_(v, label, min, max) {
 }
 function id_(v) {
   return text_(v, "record ID", 100, true);
+}
+function submissionId_(v) {
+  const id = String(v || "");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+    fail_("INVALID", "A valid submission ID is required.");
+  return id;
 }
 function uuid_() {
   return Utilities.getUuid();
@@ -455,7 +461,7 @@ function safeBoundary_(fn) {
 
 ## File 3: Store.gs
 
-SHA-256: fb2bb93c9328504b699975f6fa6f2b524d0fa928ffe7161de58937b784dde3b0
+SHA-256: e7113abc495c6b736d657536ea3fc33901908760617115ac0badc876a8c7a1b4
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -613,6 +619,49 @@ function cell_(v) {
   if (typeof v === "boolean") return { userEnteredValue: { boolValue: v } };
   return { userEnteredValue: { stringValue: String(v == null ? "" : v) } };
 }
+// Historical orphan rows are preserved. Only correctly linked recipients are
+// included in referral accounting; administrators see the excluded totals.
+function linkedRecipients_(s) {
+  const events = new Set(s.EVENTS.map(e => e.EventID));
+  const parents = new Map(s.REFERRALS.map(r => [r.ReferralID, r]));
+  return s.RECIPIENTS.filter(r => {
+    const parent = parents.get(r.ReferralID);
+    return parent && parent.EventID === r.EventID && events.has(r.EventID);
+  });
+}
+function relationshipIssues_(s, eventIds) {
+  const ids = new Set(eventIds);
+  const linked = new Set(linkedRecipients_(s).map(r => r.RecipientID));
+  const excluded = s.RECIPIENTS.filter(r => ids.has(r.EventID) && !linked.has(r.RecipientID));
+  const affected = new Set(excluded.map(r => r.ReferralID));
+  return {
+    recipientRecords: excluded.length,
+    mealQuantities: excluded.reduce((n, r) => n + (Number(r.MealCount) || 0), 0),
+    submissionRecords: s.SUBMISSIONS.filter(r => affected.has(r.ReferralID)).length,
+  };
+}
+function submissionReferral_(s, record) {
+  const parent = s.REFERRALS.find(r => r.ReferralID === record.ReferralID);
+  const children = s.RECIPIENTS.filter(r => r.ReferralID === record.ReferralID);
+  if (!parent || !s.EVENTS.some(e => e.EventID === parent.EventID) ||
+      !["Pending", "Approved", "Rejected"].includes(parent.Status) ||
+      !children.length || children.length !== Number(parent.OriginalRecipientCount) ||
+      children.some(r => r.EventID !== parent.EventID ||
+        !Number.isSafeInteger(Number(r.MealCount)) || Number(r.MealCount) < 1))
+    fail_("INTEGRITY", "This saved request needs administrator review. Please contact the meal program before submitting it again.");
+  return parent;
+}
+function savedSubmissionReceipt_(s, record) {
+  const parent = submissionReferral_(s, record);
+  let receipt;
+  try { receipt = JSON.parse(record.Receipt); } catch (_) {}
+  if (!receipt || receipt.referralId !== parent.ReferralID ||
+      receipt.meals !== Number(parent.OriginalRequestedMeals) ||
+      receipt.recipients !== Number(parent.OriginalRecipientCount) ||
+      typeof receipt.eventName !== "string" || receipt.status !== "Pending")
+    fail_("INTEGRITY", "This saved request needs administrator review. Please contact the meal program before submitting it again.");
+  return receipt;
+}
 function commit_(s) {
   const requests = [];
   Object.keys(MEAL_SCHEMA).forEach((name) => {
@@ -625,6 +674,18 @@ function commit_(s) {
     s[name].forEach((row) => {
       const key = String(row[ID_FIELDS[name]]);
       const old = originals.get(key);
+      // Reject newly introduced broken relationships without modifying or
+      // blocking unchanged historical orphan rows during normal operations.
+      if (name === "RECIPIENTS" && (!old || old.ReferralID !== row.ReferralID || old.EventID !== row.EventID)) {
+        const parent = s.REFERRALS.find(r => r.ReferralID === row.ReferralID);
+        if (!parent || parent.EventID !== row.EventID || !s.EVENTS.some(e => e.EventID === row.EventID))
+          fail_("INTEGRITY", "Recipient records must belong to a saved referral and meal event.");
+      }
+      if (name === "REFERRALS" && (!old || old.EventID !== row.EventID) &&
+          !s.EVENTS.some(e => e.EventID === row.EventID))
+        fail_("INTEGRITY", "Referral records must belong to a saved meal event.");
+      if (name === "SUBMISSIONS" && (!old || old.ReferralID !== row.ReferralID))
+        savedSubmissionReceipt_(s, row);
       if (!old) added.push(row);
       else {
         originals.delete(key);
@@ -765,7 +826,7 @@ function audit_(s, admin, action, type, id, oldValue, newValue) {
 
 ## File 6: Events.gs
 
-SHA-256: c71e3469ffdee5d5c82e874c0a37a81d1293a275d8d8e498ce6292097479f747
+SHA-256: 9067a37ad135792545968270a4a1f1ea4d0a5e50798d0e4335ead681cce78b89
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -777,7 +838,7 @@ function reserved_(s, eventId) {
         r.EventID === eventId && ["Pending", "Approved"].includes(r.Status),
     ).map((r) => r.ReferralID),
   );
-  return s.RECIPIENTS.filter((r) => active.has(r.ReferralID)).reduce(
+  return linkedRecipients_(s).filter((r) => r.EventID === eventId && active.has(r.ReferralID)).reduce(
     (n, r) => n + Number(r.MealCount),
     0,
   );
@@ -915,27 +976,21 @@ function publicEvents_() {
 
 ## File 7: Referrals.gs
 
-SHA-256: e4e60a17d08ee04e3ae0e428aafad73b1849b87798ff395e4bb7c16287be776e
+SHA-256: 59237690c2d3c83b32eb88c0e027f08722e59b9d0db1fbf6a03579f9191a4cf3
 
 Copy only the contents of this code box into the matching Apps Script file.
 
 ```javascript
 function referralMeals_(s, id) {
-  return s.RECIPIENTS.filter((r) => r.ReferralID === id).reduce(
+  return linkedRecipients_(s).filter((r) => r.ReferralID === id).reduce(
     (n, r) => n + Number(r.MealCount),
     0,
   );
 }
 function submit_(p, adminEmail) {
   const canonical = canonicalSubmission_(p, Boolean(adminEmail)),
-    submissionId = id_(p.submissionId),
+    submissionId = submissionId_(p.submissionId),
     hash = fingerprint_(canonical);
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      submissionId,
-    )
-  )
-    fail_("INVALID", "A valid submission ID is required.");
   return locked_((s) => {
     if (adminEmail) {
       if (admin_(s) !== adminEmail)
@@ -948,7 +1003,7 @@ function submit_(p, adminEmail) {
           "IDEMPOTENCY",
           "This submission ID was already used with different information.",
         );
-      return JSON.parse(prior.Receipt);
+      return savedSubmissionReceipt_(s, prior);
     }
     const e = byId_(s, "EVENTS", canonical.EventID);
     if (adminEmail) editable_(e);
@@ -1149,7 +1204,7 @@ function editReferral_(s, p, admin) {
 
 ## File 8: Duplicates.gs
 
-SHA-256: 09800c2c75e20a52d8ec085c53e804fcf27df817396d6e682f48f733451fc907
+SHA-256: f4d2180c66cf02bc4374223c042e8f5c8aec0ee63ffa7069261f9c3abb6bebe8
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -1179,13 +1234,13 @@ function duplicateMatches_(a, b) {
   );
 }
 function refreshDuplicates_(s, eventId) {
-  const rows = s.RECIPIENTS.filter((r) => r.EventID === eventId);
+  const rows = linkedRecipients_(s).filter((r) => r.EventID === eventId);
   rows.forEach(
     (a) => (a.DuplicateFlag = rows.some((b) => duplicateMatches_(a, b))),
   );
 }
 function matchesFor_(s, r) {
-  return s.RECIPIENTS.filter((b) => duplicateMatches_(r, b)).map((b) => ({
+  return linkedRecipients_(s).filter((b) => duplicateMatches_(r, b)).map((b) => ({
     recipientId: b.RecipientID,
     referralId: b.ReferralID,
     recipientName: b.RecipientName,
@@ -1196,7 +1251,7 @@ function matchesFor_(s, r) {
 
 ## File 9: Reports.gs
 
-SHA-256: 17f76951742c1466978cd9b216c3e76931d4cd1544d67b22d8373551f5d6f71b
+SHA-256: 7f75e9012787ae439d8ffc11b52bf3cea2209ed8aabfac01818ce9271c8cec59
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -1209,7 +1264,7 @@ function reports_(s, p) {
   );
   const ids = new Set(events.map((e) => e.EventID)),
     refs = s.REFERRALS.filter((r) => ids.has(r.EventID));
-  const rows = s.RECIPIENTS.filter((r) => ids.has(r.EventID));
+  const rows = linkedRecipients_(s).filter((r) => ids.has(r.EventID));
   const totals = {
     events: events.length,
     originallyRequestedMeals: refs.reduce(
@@ -1251,6 +1306,7 @@ function reports_(s, p) {
   totals.organizations = Object.keys(organizations).length;
   return {
     totals,
+    integrity: relationshipIssues_(s, [...ids]),
     organizations: Object.values(organizations).sort((a, b) =>
       a.name.localeCompare(b.name),
     ),
@@ -1262,6 +1318,7 @@ function dashboard_(s, p) {
     recipients = s.RECIPIENTS.filter((r) => r.EventID === e.EventID);
   return {
     event: e,
+    integrity: relationshipIssues_(s, [e.EventID]),
     capacity: Number(e.Capacity),
     reserved: reserved_(s, e.EventID),
     available: available_(s, e),
@@ -2128,7 +2185,7 @@ function legacyMigrationPlan_() {
 
 ## File 14: Admin.html
 
-SHA-256: c264d5fdd342cc6fb36425452dadc9d09a8e3ff364b22278966de4bfb5952e3f
+SHA-256: 5f344864ea7c3809c50d4d9069c3b90f4a8ac1ef0ae45f84850f209242a8da30
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -2169,6 +2226,7 @@ Copy only the contents of this code box into the matching Apps Script file.
         </div>
         <div id="metrics" class="metrics"></div>
         <p id="readonlyNotice" class="warning"></p>
+        <p id="integrityNotice" class="warning" role="status"></p>
         <nav class="tabs" aria-label="Admin sections">
           <button data-view="requestsView" aria-selected="true">Requests</button
           ><button data-view="routeView" aria-selected="false">
@@ -2273,6 +2331,7 @@ Copy only the contents of this code box into the matching Apps Script file.
           >
         </div>
         <div id="reportTotals" class="metrics"></div>
+        <p id="reportIntegrityNotice" class="warning" role="status"></p>
         <h3>Referring organizations</h3>
         <div id="organizationReports"></div>
       </section>
@@ -2380,7 +2439,7 @@ Copy only the contents of this code box into the matching Apps Script file.
 
 ## File 15: AdminClient.html
 
-SHA-256: d6d4ea2c175c5c36355d8a3932060630fee5e45465d0ef64cb83d535809ffb73
+SHA-256: 61eabc3ceb1c796b483f3c5725efa168ad502d7f3c6d6cba91140082f772255c
 
 Copy only the contents of this code box into the matching Apps Script file.
 
@@ -2536,6 +2595,7 @@ Copy only the contents of this code box into the matching Apps Script file.
       $("reopenEvent").hidden = true;
       $("settingsForm").inert = true;
       $("readonlyNotice").textContent = "";
+      $("integrityNotice").textContent = "";
       $("addReferral").disabled = true;
       await reports();
       return;
@@ -2550,6 +2610,7 @@ Copy only the contents of this code box into the matching Apps Script file.
     if (view === "reportsView") await reports();
   }
   function renderDashboard() {
+    $("integrityNotice").textContent = integrityMessage(dashboard.integrity);
     metric($("metrics"), [
       ["Capacity", dashboard.capacity],
       ["Reserved", dashboard.reserved],
@@ -2574,6 +2635,12 @@ Copy only the contents of this code box into the matching Apps Script file.
       "verifyPickup",
     ].forEach((id) => ($(id).disabled = ro));
     $("settingsForm").inert = ro;
+  }
+  function integrityMessage(issues) {
+    if (!issues || !(issues.recipientRecords || issues.submissionRecords)) return "";
+    return "Historical records need review: " + issues.recipientRecords +
+      " unlinked recipient records (" + issues.mealQuantities + " meal quantities) and " +
+      issues.submissionRecords + " unlinked submission records. These records are preserved and excluded from referral totals; their delivery status must be reviewed before restoring them.";
   }
   function selectedRefs() {
     return [...$("requestCards").querySelectorAll("input:checked")].map(
@@ -3125,6 +3192,7 @@ Copy only the contents of this code box into the matching Apps Script file.
       eventId: $("reportEvent").value,
       year: $("reportYear").value,
     });
+    $("reportIntegrityNotice").textContent = integrityMessage(r.integrity);
     metric($("reportTotals"), [
       ["Events", r.totals.events],
       ["Originally Requested Meals", r.totals.originallyRequestedMeals],

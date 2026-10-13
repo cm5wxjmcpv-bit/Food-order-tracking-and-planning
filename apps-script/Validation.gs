@@ -33,6 +33,12 @@ function integer_(v, label, min, max) {
 function id_(v) {
   return text_(v, "record ID", 100, true);
 }
+function submissionId_(v) {
+  const id = String(v || "");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+    fail_("INVALID", "A valid submission ID is required.");
+  return id;
+}
 function uuid_() {
   return Utilities.getUuid();
 }

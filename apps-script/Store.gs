@@ -151,6 +151,49 @@ function cell_(v) {
   if (typeof v === "boolean") return { userEnteredValue: { boolValue: v } };
   return { userEnteredValue: { stringValue: String(v == null ? "" : v) } };
 }
+// Historical orphan rows are preserved. Only correctly linked recipients are
+// included in referral accounting; administrators see the excluded totals.
+function linkedRecipients_(s) {
+  const events = new Set(s.EVENTS.map(e => e.EventID));
+  const parents = new Map(s.REFERRALS.map(r => [r.ReferralID, r]));
+  return s.RECIPIENTS.filter(r => {
+    const parent = parents.get(r.ReferralID);
+    return parent && parent.EventID === r.EventID && events.has(r.EventID);
+  });
+}
+function relationshipIssues_(s, eventIds) {
+  const ids = new Set(eventIds);
+  const linked = new Set(linkedRecipients_(s).map(r => r.RecipientID));
+  const excluded = s.RECIPIENTS.filter(r => ids.has(r.EventID) && !linked.has(r.RecipientID));
+  const affected = new Set(excluded.map(r => r.ReferralID));
+  return {
+    recipientRecords: excluded.length,
+    mealQuantities: excluded.reduce((n, r) => n + (Number(r.MealCount) || 0), 0),
+    submissionRecords: s.SUBMISSIONS.filter(r => affected.has(r.ReferralID)).length,
+  };
+}
+function submissionReferral_(s, record) {
+  const parent = s.REFERRALS.find(r => r.ReferralID === record.ReferralID);
+  const children = s.RECIPIENTS.filter(r => r.ReferralID === record.ReferralID);
+  if (!parent || !s.EVENTS.some(e => e.EventID === parent.EventID) ||
+      !["Pending", "Approved", "Rejected"].includes(parent.Status) ||
+      !children.length || children.length !== Number(parent.OriginalRecipientCount) ||
+      children.some(r => r.EventID !== parent.EventID ||
+        !Number.isSafeInteger(Number(r.MealCount)) || Number(r.MealCount) < 1))
+    fail_("INTEGRITY", "This saved request needs administrator review. Please contact the meal program before submitting it again.");
+  return parent;
+}
+function savedSubmissionReceipt_(s, record) {
+  const parent = submissionReferral_(s, record);
+  let receipt;
+  try { receipt = JSON.parse(record.Receipt); } catch (_) {}
+  if (!receipt || receipt.referralId !== parent.ReferralID ||
+      receipt.meals !== Number(parent.OriginalRequestedMeals) ||
+      receipt.recipients !== Number(parent.OriginalRecipientCount) ||
+      typeof receipt.eventName !== "string" || receipt.status !== "Pending")
+    fail_("INTEGRITY", "This saved request needs administrator review. Please contact the meal program before submitting it again.");
+  return receipt;
+}
 function commit_(s) {
   const requests = [];
   Object.keys(MEAL_SCHEMA).forEach((name) => {
@@ -163,6 +206,18 @@ function commit_(s) {
     s[name].forEach((row) => {
       const key = String(row[ID_FIELDS[name]]);
       const old = originals.get(key);
+      // Reject newly introduced broken relationships without modifying or
+      // blocking unchanged historical orphan rows during normal operations.
+      if (name === "RECIPIENTS" && (!old || old.ReferralID !== row.ReferralID || old.EventID !== row.EventID)) {
+        const parent = s.REFERRALS.find(r => r.ReferralID === row.ReferralID);
+        if (!parent || parent.EventID !== row.EventID || !s.EVENTS.some(e => e.EventID === row.EventID))
+          fail_("INTEGRITY", "Recipient records must belong to a saved referral and meal event.");
+      }
+      if (name === "REFERRALS" && (!old || old.EventID !== row.EventID) &&
+          !s.EVENTS.some(e => e.EventID === row.EventID))
+        fail_("INTEGRITY", "Referral records must belong to a saved meal event.");
+      if (name === "SUBMISSIONS" && (!old || old.ReferralID !== row.ReferralID))
+        savedSubmissionReceipt_(s, row);
       if (!old) added.push(row);
       else {
         originals.delete(key);

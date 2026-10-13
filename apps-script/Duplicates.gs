@@ -23,13 +23,13 @@ function duplicateMatches_(a, b) {
   );
 }
 function refreshDuplicates_(s, eventId) {
-  const rows = s.RECIPIENTS.filter((r) => r.EventID === eventId);
+  const rows = linkedRecipients_(s).filter((r) => r.EventID === eventId);
   rows.forEach(
     (a) => (a.DuplicateFlag = rows.some((b) => duplicateMatches_(a, b))),
   );
 }
 function matchesFor_(s, r) {
-  return s.RECIPIENTS.filter((b) => duplicateMatches_(r, b)).map((b) => ({
+  return linkedRecipients_(s).filter((b) => duplicateMatches_(r, b)).map((b) => ({
     recipientId: b.RecipientID,
     referralId: b.ReferralID,
     recipientName: b.RecipientName,

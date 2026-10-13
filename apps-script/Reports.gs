@@ -6,7 +6,7 @@ function reports_(s, p) {
   );
   const ids = new Set(events.map((e) => e.EventID)),
     refs = s.REFERRALS.filter((r) => ids.has(r.EventID));
-  const rows = s.RECIPIENTS.filter((r) => ids.has(r.EventID));
+  const rows = linkedRecipients_(s).filter((r) => ids.has(r.EventID));
   const totals = {
     events: events.length,
     originallyRequestedMeals: refs.reduce(
@@ -48,6 +48,7 @@ function reports_(s, p) {
   totals.organizations = Object.keys(organizations).length;
   return {
     totals,
+    integrity: relationshipIssues_(s, [...ids]),
     organizations: Object.values(organizations).sort((a, b) =>
       a.name.localeCompare(b.name),
     ),
@@ -59,6 +60,7 @@ function dashboard_(s, p) {
     recipients = s.RECIPIENTS.filter((r) => r.EventID === e.EventID);
   return {
     event: e,
+    integrity: relationshipIssues_(s, [e.EventID]),
     capacity: Number(e.Capacity),
     reserved: reserved_(s, e.EventID),
     available: available_(s, e),

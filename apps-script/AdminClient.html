@@ -149,6 +149,7 @@
       $("reopenEvent").hidden = true;
       $("settingsForm").inert = true;
       $("readonlyNotice").textContent = "";
+      $("integrityNotice").textContent = "";
       $("addReferral").disabled = true;
       await reports();
       return;
@@ -163,6 +164,7 @@
     if (view === "reportsView") await reports();
   }
   function renderDashboard() {
+    $("integrityNotice").textContent = integrityMessage(dashboard.integrity);
     metric($("metrics"), [
       ["Capacity", dashboard.capacity],
       ["Reserved", dashboard.reserved],
@@ -187,6 +189,12 @@
       "verifyPickup",
     ].forEach((id) => ($(id).disabled = ro));
     $("settingsForm").inert = ro;
+  }
+  function integrityMessage(issues) {
+    if (!issues || !(issues.recipientRecords || issues.submissionRecords)) return "";
+    return "Historical records need review: " + issues.recipientRecords +
+      " unlinked recipient records (" + issues.mealQuantities + " meal quantities) and " +
+      issues.submissionRecords + " unlinked submission records. These records are preserved and excluded from referral totals; their delivery status must be reviewed before restoring them.";
   }
   function selectedRefs() {
     return [...$("requestCards").querySelectorAll("input:checked")].map(
@@ -738,6 +746,7 @@
       eventId: $("reportEvent").value,
       year: $("reportYear").value,
     });
+    $("reportIntegrityNotice").textContent = integrityMessage(r.integrity);
     metric($("reportTotals"), [
       ["Events", r.totals.events],
       ["Originally Requested Meals", r.totals.originallyRequestedMeals],

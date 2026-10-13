@@ -36,6 +36,59 @@ test("public receipt lookup does not reveal admin-created requests", () => {
   const response = JSON.parse(h.ctx.doGet({parameter: {action: "submissionReceipt", submissionId: p.submissionId}}).text);
   assert.equal(ok(response).receipt, null);
 });
+test("historical orphan rows are preserved and visible in admin diagnostics while intact referrals keep working", () => {
+  const h = harness(), e = createEvent(h), p = payload(e.EventID, [4]);
+  const receipt = ok(h.public(p));
+  // Simulate an out-of-application parent removal in the existing mock store.
+  const table = h.tables.get("REFERRALS");
+  table.rows = table.rows.filter((r, i) => i === 0 || r[0] !== receipt.referralId);
+  const orphan = JSON.stringify(h.get("RECIPIENTS")[0]);
+  const before = h.snapshot();
+  code(h.public(p), "INTEGRITY");
+  code(JSON.parse(h.ctx.doGet({parameter: {action: "submissionReceipt", submissionId: p.submissionId}}).text), "INTEGRITY");
+  assert.equal(h.snapshot(), before);
+  const next = ok(h.public(payload(e.EventID, [2])));
+  assert.ok(next.referralId !== receipt.referralId);
+  assert.equal(h.ctx.publicEvents_()[0].remaining, 18);
+  assert.equal(JSON.stringify(h.get("RECIPIENTS")[0]), orphan);
+  const report = ok(h.admin("reports", {}));
+  assert.equal(report.totals.recipientRecords, 1);
+  assert.equal(report.totals.currentlyReservedMeals, 2);
+  assert.deepEqual(report.integrity, {recipientRecords: 1, mealQuantities: 4, submissionRecords: 1});
+  assert.deepEqual(ok(h.admin("dashboard", {eventId: e.EventID})).integrity, report.integrity);
+  assert.equal(h.get("SUBMISSIONS").length, 2);
+});
+test("mismatched event relationships and missing recipients cannot return a successful saved receipt", () => {
+  for (const corruption of ["event", "recipient", "receipt"]) {
+    const h = harness(), e = createEvent(h), p = payload(e.EventID, [2]);
+    ok(h.public(p));
+    if (corruption === "event") h.tables.get("RECIPIENTS").rows[1][2] = "missing-event";
+    if (corruption === "recipient") h.tables.get("RECIPIENTS").rows.splice(1, 1);
+    if (corruption === "receipt") h.tables.get("SUBMISSIONS").rows[1][3] = '{"private":"Synthetic secret"}';
+    const before = h.snapshot();
+    const retry = h.public(p);
+    code(retry, "INTEGRITY");
+    assert.ok(!JSON.stringify(retry).includes("Synthetic secret"));
+    code(JSON.parse(h.ctx.doGet({parameter: {action: "submissionReceipt", submissionId: p.submissionId}}).text), "INTEGRITY");
+    assert.equal(h.snapshot(), before);
+  }
+});
+test("new broken relationships are rejected before the atomic batch", () => {
+  const h = harness(), e = createEvent(h);
+  ok(h.public(payload(e.EventID, [1])));
+  const before = h.snapshot();
+  assert.throws(() => h.seed(s => {
+    s.RECIPIENTS.push({...s.RECIPIENTS[0], RecipientID: crypto.randomUUID(), ReferralID: "missing-parent"});
+  }), error => error.code === "INTEGRITY");
+  assert.equal(h.snapshot(), before);
+});
+test("submission and recovery consistently require a v4 submission ID without writes on invalid input", () => {
+  const h = harness(), e = createEvent(h), before = h.snapshot();
+  const id = "00000000-0000-1000-8000-000000000000";
+  code(h.public(payload(e.EventID, [1], {submissionId: id})), "INVALID");
+  code(JSON.parse(h.ctx.doGet({parameter: {action: "submissionReceipt", submissionId: id}}).text), "INVALID");
+  assert.equal(h.snapshot(), before);
+});
 test("public form sharing requires administrator authorization and an explicit safe website URL", () => {
   const h = harness();
   code(h.admin("publicFormLink"), "CONFIG");

@@ -5,7 +5,8 @@
     container = $("recipients");
   let events = [],
     selected = null,
-    busy = false;
+    busy = false,
+    loading = false;
   const storageKey = "community-meals-submission-v1";
   let pending = null;
   try {
@@ -86,9 +87,13 @@
         : "";
     $("submitRequest").disabled =
       busy ||
+      loading ||
       !selected ||
       (selected.remaining <= 0 && !(pending && !pending.receipt));
-    $("eventSelect").disabled = busy || !events.length;
+    $("eventSelect").disabled = busy || loading || !events.length;
+    $("refreshAvailability").disabled = busy || loading;
+    $("checkSavedRequest").hidden = !pending || !!pending.receipt;
+    $("checkSavedRequest").disabled = busy;
     renumber();
   }
   function select(id) {
@@ -151,6 +156,9 @@
     }
   }
   async function load(preferred) {
+    if (loading) return;
+    loading = true;
+    totals();
     try {
       events = await api();
       if (
@@ -178,10 +186,15 @@
         ? keep
         : next?.eventId || "";
       select($("eventSelect").value);
+      $("availabilityChecked").textContent = "Availability checked at " + new Date().toLocaleTimeString() + ".";
     } catch (e) {
       selected = null;
       totals();
       $("eventMessage").textContent = e.message;
+      $("availabilityChecked").textContent = "Availability could not be refreshed. Please try again.";
+    } finally {
+      loading = false;
+      totals();
     }
   }
   async function hash(p) {
@@ -202,6 +215,36 @@
       " has been received and is awaiting approval.";
     $("receiptId").textContent = "Referral ID: " + receipt.referralId;
   }
+  async function recoverPending() {
+    if (busy || !pending || pending.receipt) return;
+    busy = true;
+    form.inert = true;
+    totals();
+    try {
+      const receipt = await MealSubmission.recover({
+        check: () => api(null, pending.id),
+        onChecking: () => { $("submissionMessage").textContent = "Checking whether your previous request was saved…"; },
+      });
+      if (receipt) {
+        retain({ ...pending, receipt });
+        showReceipt(receipt);
+        await load(pending.event.eventId);
+      } else {
+        $("submissionMessage").textContent = "Your previous request is still unconfirmed. You can check again or re-enter the same information to retry safely. Recipient details were not stored in this browser.";
+      }
+    } catch (error) {
+      $("submissionMessage").textContent = error.message;
+    } finally {
+      busy = false;
+      form.inert = false;
+      totals();
+    }
+  }
+  $("checkSavedRequest").addEventListener("click", recoverPending);
+  $("refreshAvailability").addEventListener("click", () => load());
+  window.addEventListener("focus", () => {
+    if (!busy) load();
+  });
   form.addEventListener("input", totals);
   $("eventSelect").addEventListener("change", () => {
     const id = $("eventSelect").value;
@@ -211,7 +254,7 @@
   $("addRecipient").addEventListener("click", add);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (busy || !form.reportValidity() || !selected) return;
+    if (busy || loading || !form.reportValidity() || !selected) return;
     let payload = collect();
     if (
       payload.recipients.some(
@@ -293,8 +336,7 @@
   });
   add();
   if (pending?.receipt) showReceipt(pending.receipt);
-  else if (pending)
-    $("submissionMessage").textContent =
-      "A previous submission has an uncertain result. Re-enter the same information to retry safely. Recipient details were not stored in this browser.";
-  load();
+  load().then(() => {
+    if (pending && !pending.receipt) return recoverPending();
+  });
 })();
