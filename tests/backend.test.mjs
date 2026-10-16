@@ -1010,8 +1010,8 @@ test("archive copy validates source, capacity, and does not expose private rows 
   code(h.admin("copyArchivedRecipients",request),"CAPACITY");
   assert.equal(h.snapshot(),archivedSnapshot);
   h.state.active=h.state.effective="not-admin@example.test";
-  code(h.admin("archivedRecipients",{eventId:source.EventID}),"AUTH");
-  code(h.admin("copyArchivedRecipients",request),"AUTH");
+  code(h.admin("archivedRecipients",{eventId:source.EventID}),"FORBIDDEN");
+  code(h.admin("copyArchivedRecipients",request),"FORBIDDEN");
   assert.equal(h.snapshot(),archivedSnapshot);
   assert.equal(JSON.stringify(h.ctx.publicEvents_()).includes("Synthetic Recipient"),false);
 });
