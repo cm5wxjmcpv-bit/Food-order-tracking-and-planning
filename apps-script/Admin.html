@@ -100,7 +100,7 @@
       </section>
       <section id="settingsView" hidden>
         <h2>Event Settings</h2>
-        <form id="settingsForm">
+        <form id="settingsForm" autocomplete="off">
           <div class="grid">
             <label
               >Event name<input
@@ -130,6 +130,7 @@
             ><label class="full"
               >Starting / pickup address<input
                 name="startAddress"
+                autocomplete="off"
                 required
                 maxlength="500"
             /></label>
@@ -175,24 +176,29 @@
           Close
         </button>
       </div>
-      <form id="referralEditor">
+      <form id="referralEditor" autocomplete="off">
         <fieldset>
           <legend>Referring organization</legend>
           <div class="grid">
             <label
               >Organization name<input
                 name="organizationName"
+                autocomplete="off"
                 maxlength="160"
                 required /></label
             ><label
               >Email address<input
                 type="email"
                 name="organizationEmail"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
                 maxlength="254"
                 required /></label
             ><label
               >Phone number<input
                 name="organizationPhone"
+                autocomplete="off"
                 type="tel"
                 maxlength="40"
                 required
@@ -213,7 +219,7 @@
         <h2>Create Event</h2>
         <button id="closeEvent" class="secondary">Close</button>
       </div>
-      <form id="eventEditor">
+      <form id="eventEditor" autocomplete="off">
         <div class="grid">
           <label
             >Event name<input
