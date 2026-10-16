@@ -1,6 +1,6 @@
 # Community Meals — manual Apps Script installation
 
-This package uses the existing project and spreadsheet. It replaces the old source with the modular V1 backend. It does not delete or migrate Requests/Settings, activate Maps/billing, merge main or publish the frontend. The package's 16 code boxes contain the COMPLETE contents of 12 script files, 3 HTML files and the manifest. Their bytes are checked against apps-script/ by tools/check.mjs. Use the pinned commit URL supplied in the chat; do not mix files from other versions.
+This package uses the existing project and spreadsheet. It replaces the old source with the modular V1 backend. It does not delete or migrate Requests/Settings, activate Maps/billing, merge main or publish the frontend. The package's 18 code boxes contain the COMPLETE contents of 12 script files, 3 HTML files and the manifest. Their bytes are checked against apps-script/ by tools/check.mjs. Use the pinned commit URL supplied in the chat; do not mix files from other versions.
 
 Project editor:
 https://script.google.com/u/0/home/projects/1ZDIqJvXfmu1z2cYhlRfQNPf4ElyoKcVNeaG35NkeblARb6p4KJeOOGDm/edit
@@ -138,7 +138,7 @@ SHA-256: e8e00ed6b88eac46aa1a5025a4cdba100c2bb3604c20641e53c3307fdea8c2bb
 Copy only the contents of this code box into the matching Apps Script file.
 
 ```javascript
-const MEALS_BACKEND_VERSION = "2026-10-13-integrity-recovery-v1";
+const MEALS_BACKEND_VERSION = "2026-10-16-archived-reuse-split-routes-v1";
 function include_(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
@@ -240,6 +240,7 @@ function adminCall(action, p) {
         a.DeliveryDate.localeCompare(b.DeliveryDate),
       );
     if (action === "dashboard") return dashboard_(auth.state, p);
+    if (action === "archivedRecipients") return archivedRecipients_(auth.state, p);
     if (action === "route") return route_(auth.state, id_(p.eventId));
     if (action === "reports") return reports_(auth.state, p);
     if (action === "createReferral") return submit_(p, auth.email);
@@ -252,6 +253,8 @@ function adminCall(action, p) {
           return manualAddressReview_(s, p, admin);
         case "saveEvent":
           return eventWrite_(s, p, admin);
+        case "copyArchivedRecipients":
+          return copyArchivedRecipients_(s, p, admin);
         case "archive":
           return archiveWrite_(s, p, admin);
         case "statuses":
@@ -260,6 +263,8 @@ function adminCall(action, p) {
           return editReferral_(s, p, admin);
         case "reorder":
           return routeOrder_(s, p, admin, false);
+        case "splitRoute":
+          return splitRoute_(s, p, admin);
         default:
           fail_("FORBIDDEN", "This administrator operation is unavailable.");
       }
@@ -1200,6 +1205,122 @@ function editReferral_(s, p, admin) {
   refreshDuplicates_(s, e.EventID);
   return { referralId: r.ReferralID };
 }
+
+/** Read only active approved deliveries from a previously archived event. */
+function archivedRecipients_(s, p) {
+  const e = byId_(s, "EVENTS", id_(p.eventId));
+  if (e.Archived !== true)
+    fail_("INVALID", "Choose an archived event.");
+  const refs = new Map(s.REFERRALS.filter(r =>
+    r.EventID === e.EventID && r.Status === "Approved"
+  ).map(r => [r.ReferralID, r]));
+  return {
+    eventId: e.EventID, eventName: e.EventName,
+    recipients: linkedRecipients_(s)
+      .filter(r => r.EventID === e.EventID && refs.has(r.ReferralID))
+      .map(r => ({
+        recipientId: r.RecipientID,
+        name: r.RecipientName,
+        address: r.Address,
+        meals: Number(r.MealCount),
+        organization: refs.get(r.ReferralID).OrganizationName,
+      }))
+      .sort((a,b) => a.name.localeCompare(b.name) || a.address.localeCompare(b.address)),
+  };
+}
+
+/** Creates new event-specific records, never moves or changes archived history. */
+function copyArchivedRecipients_(s, p, admin) {
+  const sourceId = id_(p.sourceEventId),
+    targetId = id_(p.targetEventId),
+    batchId = submissionId_(p.batchId),
+    source = byId_(s, "EVENTS", sourceId),
+    target = byId_(s, "EVENTS", targetId);
+  if (source.Archived !== true || sourceId === targetId)
+    fail_("INVALID", "Choose an archived source and a different destination.");
+  editable_(target);
+  if (!Array.isArray(p.recipientIds) || !p.recipientIds.length ||
+      p.recipientIds.length > MEAL_LIMITS.recipients)
+    fail_("INVALID", "Select between 1 and 100 archived recipients.");
+  const ids = p.recipientIds.map(id_), unique = new Set(ids);
+  if (ids.length !== unique.size)
+    fail_("INVALID", "Each recipient may be selected only once.");
+  const fingerprint = fingerprint_({sourceId, targetId, ids: ids.slice().sort()});
+  const prior = s.AUDITLOG.find(a =>
+    a.Action === "Archived Recipients Copied" && a.EntityID === batchId);
+  if (prior) {
+    const info = JSON.parse(prior.NewValue);
+    if (info.fingerprint !== fingerprint)
+      fail_("IDEMPOTENCY", "This copy request ID was already used.");
+    return info.result;
+  }
+  const sourceRefs = new Map(s.REFERRALS.filter(r =>
+    r.EventID === sourceId && r.Status === "Approved"
+  ).map(r => [r.ReferralID,r]));
+  const sourceRows = new Map(linkedRecipients_(s).filter(r =>
+    r.EventID === sourceId && sourceRefs.has(r.ReferralID)
+  ).map(r => [r.RecipientID,r]));
+  const selected = ids.map(id => {
+    const row = sourceRows.get(id);
+    if (!row) fail_("INVALID", "A selected recipient is not part of this archived event.");
+    return row;
+  });
+  const personKey = r => normalize_(r.RecipientName) + "|" + addressKey_(r.Address);
+  const existing = new Set(linkedRecipients_(s)
+    .filter(r => r.EventID === targetId).map(personKey));
+  const batchKeys = new Set();
+  selected.forEach(r => {
+    const key = personKey(r);
+    if (existing.has(key) || batchKeys.has(key))
+      fail_("DUPLICATE", "One or more selected recipients are already in the destination event, or selected more than once. Review your selection before copying.");
+    batchKeys.add(key);
+  });
+  const meals = selected.reduce((sum,r) => sum + Number(r.MealCount), 0);
+  if (meals > available_(s, target))
+    fail_("CAPACITY", "The new event does not have enough available meals for this selection.");
+  const grouped = new Map();
+  selected.forEach(r => {
+    if (!grouped.has(r.ReferralID)) grouped.set(r.ReferralID, []);
+    grouped.get(r.ReferralID).push(r);
+  });
+  const created = [], now = now_();
+  grouped.forEach((children, referralId) => {
+    const origin = sourceRefs.get(referralId);
+    const parent = {
+      ReferralID: uuid_(), EventID: targetId,
+      OrganizationName: origin.OrganizationName,
+      OrganizationKey: origin.OrganizationKey,
+      OrganizationEmail: origin.OrganizationEmail,
+      OrganizationPhone: origin.OrganizationPhone,
+      Status: "Pending", SubmittedAt: now, UpdatedAt: now,
+      SubmittedByAdmin: true,
+      OriginalRequestedMeals: children.reduce((n,r) => n + Number(r.MealCount),0),
+      OriginalRecipientCount: children.length,
+      Version: 1,
+    };
+    s.REFERRALS.push(parent);
+    children.forEach(r => {
+      s.RECIPIENTS.push({
+        RecipientID: uuid_(), ReferralID: parent.ReferralID, EventID: targetId,
+        RecipientName: r.RecipientName, Address: r.Address,
+        NormalizedAddress: addressKey_(r.Address), Phone: r.Phone,
+        MealCount: Number(r.MealCount),
+        DietaryRestrictions: r.DietaryRestrictions, DoorPreference: r.DoorPreference,
+        DeliveryInstructions: r.DeliveryInstructions, Notes: "",
+        DuplicateFlag: false, RoutePosition: "", CreatedAt: now, UpdatedAt: now,
+        Version: 1, AddressStatus: "Needs Review", VerifiedAt: "",
+      });
+    });
+    created.push(parent.ReferralID);
+  });
+  refreshDuplicates_(s,targetId);
+  const result = {eventId: targetId, recipientsCopied: selected.length,
+    mealsReserved: meals, referralsCreated: created.length};
+  audit_(s, admin, "Archived Recipients Copied", "Event", batchId, null,
+    {sourceEventId: sourceId, targetEventId: targetId, sourceRecipientIds: ids,
+     newReferralIds: created, fingerprint, result});
+  return result;
+}
 ```
 
 ## File 8: Duplicates.gs
@@ -1809,95 +1930,123 @@ function approvedStops_(s, eventId) {
     (r) => r.EventID === eventId && ids.has(r.ReferralID),
   );
 }
+
+function driverGroup_(recipient) {
+  const match = String(recipient.RoutePosition || "").match(/^([12]):([1-9][0-9]*)$/);
+  return match ? Number(match[1]) : 1;
+}
+function driverPosition_(recipient) {
+  const raw = String(recipient.RoutePosition || "");
+  const match = raw.match(/^([12]):([1-9][0-9]*)$/);
+  if (match) return Number(match[2]);
+  const legacy = Number(raw);
+  return Number.isSafeInteger(legacy) && legacy > 0 ? legacy : 1e9;
+}
+function orderedApprovedStops_(s, eventId) {
+  return approvedStops_(s, eventId).sort((a,b) =>
+    driverGroup_(a) - driverGroup_(b) ||
+    driverPosition_(a) - driverPosition_(b) ||
+    a.CreatedAt.localeCompare(b.CreatedAt) ||
+    a.RecipientID.localeCompare(b.RecipientID)
+  );
+}
 function route_(s, eventId) {
   const e = byId_(s, "EVENTS", eventId);
-  const rows = approvedStops_(s, eventId).sort(
-    (a, b) =>
-      (Number(a.RoutePosition) || 1e9) - (Number(b.RoutePosition) || 1e9) ||
-      a.CreatedAt.localeCompare(b.CreatedAt) ||
-      a.RecipientID.localeCompare(b.RecipientID),
-  );
-  let running = 0;
-  const stops = rows.map((r, i) => ({
-    recipientId: r.RecipientID,
-    stop: i + 1,
-    recipientName: r.RecipientName,
-    address: r.Address,
-    phone: r.Phone,
-    meals: Number(r.MealCount),
-    runningMeals: (running += Number(r.MealCount)),
-    dietaryRestrictions: r.DietaryRestrictions,
-    doorPreference: r.DoorPreference,
-    deliveryInstructions: r.DeliveryInstructions,
-    addressStatus: r.AddressStatus,
-  }));
-  const unresolved = stops.filter((r) => !addressReviewed_(r.addressStatus));
+  const rows = orderedApprovedStops_(s, eventId);
+  const grouped = new Map([[1,[]], [2,[]]]);
+  rows.forEach(r => grouped.get(driverGroup_(r)).push(r));
+  const routes = [...grouped].filter(([driver,group]) => driver === 1 || group.length)
+    .map(([driver,group]) => {
+      let running = 0;
+      const stops = group.map((r,i) => ({
+        recipientId: r.RecipientID,
+        stop: i+1, driver,
+        recipientName: r.RecipientName, address: r.Address, phone: r.Phone,
+        meals: Number(r.MealCount),
+        runningMeals: (running += Number(r.MealCount)),
+        dietaryRestrictions: r.DietaryRestrictions, doorPreference: r.DoorPreference,
+        deliveryInstructions: r.DeliveryInstructions,
+        addressStatus: r.AddressStatus,
+      }));
+      return {driver, label: "Driver " + driver,
+        stops, totalMeals: running,
+        unresolved: stops.filter(x => !addressReviewed_(x.addressStatus)),
+      };
+    });
+  const stops = routes.flatMap(r => r.stops);
+  const unresolved = stops.filter(r => !addressReviewed_(r.addressStatus));
   return {
-    eventId: e.EventID,
-    eventName: e.EventName,
-    deliveryDate: e.DeliveryDate,
-    startAddress: e.StartAddress,
-    startAddressStatus: e.StartAddressStatus,
+    eventId: e.EventID, eventName: e.EventName, deliveryDate: e.DeliveryDate,
+    startAddress: e.StartAddress, startAddressStatus: e.StartAddressStatus,
     version: Number(e.RouteVersion),
     readOnly: e.Archived === true || e.Status === "Completed",
     needsReview: Boolean(e.RouteNeedsReview),
-    mapsEnabled:
-      properties_().getProperty("MEALS_MAPS_LIVE_ENABLED") === "true",
-    isFinal:
-      !e.RouteNeedsReview &&
-      addressReviewed_(e.StartAddressStatus) &&
+    mapsEnabled: properties_().getProperty("MEALS_MAPS_LIVE_ENABLED") === "true",
+    isFinal: !e.RouteNeedsReview && addressReviewed_(e.StartAddressStatus) &&
       !unresolved.length,
-    unresolved,
-    stops,
-    totalMeals: running,
+    unresolved, stops, routes,
+    totalMeals: routes.reduce((n,r) => n+r.totalMeals,0),
   };
 }
 function routeOrder_(s, p, admin, optimized) {
   const e = byId_(s, "EVENTS", p.eventId);
   editable_(e);
   if (Number(e.RouteVersion) !== Number(p.routeVersion))
-    fail_(
-      "CONFLICT",
-      "The delivery route changed. Refresh before saving this order.",
-    );
-  const stops = approvedStops_(s, e.EventID),
-    ids = stops.map((r) => r.RecipientID),
-    order = p.recipientIds;
-  if (
-    !Array.isArray(order) ||
-    order.length !== ids.length ||
-    new Set(order).size !== ids.length ||
-    order.some((id) => !ids.includes(id))
-  )
-    fail_(
-      "INVALID",
-      "The route must include every approved recipient exactly once.",
-    );
-  const old = stops
-    .slice()
-    .sort(
-      (a, b) =>
-        (Number(a.RoutePosition) || 1e9) - (Number(b.RoutePosition) || 1e9),
-    )
-    .map((r) => r.RecipientID);
-  order.forEach((id, i) => {
-    const r = byId_(s, "RECIPIENTS", id);
-    r.RoutePosition = i + 1;
+    fail_("CONFLICT", "The delivery route changed. Refresh before saving this order.");
+  const rows = approvedStops_(s, e.EventID);
+  const ids = new Set(rows.map(r => r.RecipientID)), order = p.recipientIds;
+  if (!Array.isArray(order) || order.length !== rows.length ||
+      new Set(order).size !== rows.length || order.some(id => !ids.has(id)))
+    fail_("INVALID", "Both driver routes must contain every approved recipient exactly once.");
+  const old = orderedApprovedStops_(s,e.EventID).map(r=>r.RecipientID);
+  const groupById = new Map(rows.map(r=>[r.RecipientID,driverGroup_(r)]));
+  let previousDriver = 1;
+  const counts = {1:0,2:0};
+  order.forEach(id => {
+    const driver = groupById.get(id);
+    if (driver < previousDriver)
+      fail_("INVALID", "Keep Driver 1 and Driver 2 stops in their respective routes.");
+    previousDriver = driver;
+    const recipient = rows.find(r=>r.RecipientID===id);
+    recipient.RoutePosition = driver + ":" + (++counts[driver]);
   });
-  e.RouteVersion = Number(e.RouteVersion) + 1;
-  e.RouteNeedsReview =
-    stops.some((r) => !addressReviewed_(r.AddressStatus)) ||
+  e.RouteVersion = Number(e.RouteVersion)+1;
+  e.RouteNeedsReview = rows.some(r=>!addressReviewed_(r.AddressStatus)) ||
     !addressReviewed_(e.StartAddressStatus);
-  audit_(
-    s,
-    admin,
-    optimized ? "Route Optimized" : "Route Reordered",
-    "Event",
-    e.EventID,
-    old,
-    order,
-  );
-  return route_(s, e.EventID);
+  audit_(s,admin,optimized?"Route Optimized":"Route Reordered",
+    "Event",e.EventID,old,order);
+  return route_(s,e.EventID);
+}
+/** The selection is the complete Driver 2 group; everything else is Driver 1. */
+function splitRoute_(s,p,admin) {
+  const e=byId_(s,"EVENTS",id_(p.eventId));
+  editable_(e);
+  if(Number(p.routeVersion)!==Number(e.RouteVersion))
+    fail_("CONFLICT","The route changed. Refresh before splitting.");
+  const rows=orderedApprovedStops_(s,e.EventID);
+  const requested=p.driver2Ids;
+  if(!Array.isArray(requested) || requested.length>rows.length ||
+     requested.some(x=>typeof x!=="string") ||
+     new Set(requested).size!==requested.length)
+    fail_("INVALID","Choose each Driver 2 address only once.");
+  const approvedIds=new Set(rows.map(r=>r.RecipientID));
+  if(requested.some(id=>!approvedIds.has(id)))
+    fail_("INVALID","The selected address is not an approved delivery stop.");
+  if(requested.length===rows.length && rows.length)
+    fail_("INVALID","Leave at least one delivery for Driver 1.");
+  const chosen=new Set(requested),before=rows.map(r=>({
+    id:r.RecipientID,driver:driverGroup_(r)
+  }));
+  const counts={1:0,2:0};
+  rows.forEach(r=>{
+    const group=chosen.has(r.RecipientID)?2:1;
+    r.RoutePosition=group+":"+(++counts[group]);
+  });
+  e.RouteVersion=Number(e.RouteVersion)+1;
+  e.RouteNeedsReview=true;
+  audit_(s,admin,requested.length?"Route Split":"Route Split Cleared",
+    "Event",e.EventID,before,rows.map(r=>({id:r.RecipientID,driver:driverGroup_(r)})));
+  return route_(s,e.EventID);
 }
 function optimize_(p) {
   const a = requireAdmin_(),
@@ -1905,7 +2054,8 @@ function optimize_(p) {
   editable_(e);
   if (Number(p.routeVersion) !== Number(e.RouteVersion))
     fail_("CONFLICT", "The delivery route changed. Refresh before optimizing.");
-  const stops = approvedStops_(a.state, e.EventID);
+  const driver = p.driver == null ? 1 : integer_(p.driver,"driver",1,2);
+  const stops = approvedStops_(a.state, e.EventID).filter(r=>driverGroup_(r)===driver);
   if (!stops.length)
     fail_("INVALID", "Approve at least one recipient before optimizing.");
   if (
@@ -1979,17 +2129,16 @@ function optimize_(p) {
       "The routing service could not include every stop. The previous order is unchanged.",
     );
   const visits = (result.routes || []).flatMap((r) => r.visits || []);
-  const ids = visits.map(
-    (v) => v.shipmentLabel || (stops[v.shipmentIndex || 0] || {}).RecipientID,
-  );
-  return locked_((s) =>
-    routeOrder_(
-      s,
-      { eventId: e.EventID, routeVersion: p.routeVersion, recipientIds: ids },
-      admin_(s),
-      true,
-    ),
-  );
+  const ids = visits.map(v =>
+    v.shipmentLabel || (stops[v.shipmentIndex || 0] || {}).RecipientID);
+  // Optimize only the chosen driver's stops and preserve the other driver's
+  // assignments and order. The locked write rechecks the route version.
+  const all = route_(a.state,e.EventID).stops;
+  const remaining = all.filter(r=>r.driver!==driver).map(r=>r.recipientId);
+  const fullOrder = driver===1 ? ids.concat(remaining) : remaining.concat(ids);
+  return locked_(s=>routeOrder_(s,
+    {eventId:e.EventID,routeVersion:p.routeVersion,recipientIds:fullOrder},
+    admin_(s),true));
 }
 
 // Return only bounded machine codes. Never expose Google's raw message/body.
@@ -2235,6 +2384,9 @@ Copy only the contents of this code box into the matching Apps Script file.
             Event Settings</button
           ><button data-view="reportsView" aria-selected="false">
             Reports
+          </button
+          ><button data-view="archiveView" aria-selected="false">
+            Archived Recipients
           </button>
         </nav>
         <p id="adminMessage" role="status" aria-live="polite"></p>
@@ -2249,6 +2401,23 @@ Copy only the contents of this code box into the matching Apps Script file.
         </div>
         <div id="requestCards"></div>
       </section>
+
+      <section id="archiveView" hidden class="no-print">
+        <h2>Reuse Recipients from Archived Events</h2>
+        <p>Choose a past event, select recipients, and copy them to another event. Original archived records will not change. Copied requests are Pending and addresses must be reviewed again.</p>
+        <div class="grid">
+          <label>Archived event<select id="archiveSourceEvent"></select></label>
+          <label>New event<select id="archiveTargetEvent"></select></label>
+        </div>
+        <div class="actions">
+          <button id="archiveSelectAll" type="button" class="secondary">Select All</button>
+          <button id="archiveClear" type="button" class="secondary">Clear Selection</button>
+          <button id="archiveCopy" type="button">Add Selected to Event</button>
+        </div>
+        <p id="archiveCount" class="hint" aria-live="polite"></p>
+        <p id="archiveStatus" role="status" aria-live="polite"></p>
+        <div id="archiveRecipients"></div>
+      </section>
       <section id="routeView" hidden>
         <div class="route-header">
           <h2 id="routeTitle">Delivery Route</h2>
@@ -2258,12 +2427,16 @@ Copy only the contents of this code box into the matching Apps Script file.
           <p id="routingAvailability" class="hint no-print"></p>
         </div>
         <div class="actions no-print">
-          <button id="optimizeRoute">Optimize Route</button
+          <button id="optimizeRoute">Optimize Driver 1</button
+          ><button id="optimizeRoute2" hidden>Optimize Driver 2</button
           ><button id="saveRoute">Save Manual Order</button
+          ><button id="splitRoute" class="secondary">Split Route</button
+          ><button id="clearRouteSplit" class="secondary" hidden>Clear Split</button
           ><button id="printRoute" class="secondary">
-            Print Delivery Sheet
-          </button>
+            Print Driver 1
+          </button><button id="printRoute2" class="secondary" hidden>Print Driver 2</button>
         </div>
+        <p id="routeSplitMessage" class="hint no-print" role="status"></p>
         <div id="routeStops"></div>
       </section>
       <section id="settingsView" hidden>
@@ -2457,7 +2630,11 @@ Copy only the contents of this code box into the matching Apps Script file.
     dragId = null,
     createId = null,
     routeUnsaved = false,
-    referralAddressControls = [];
+    referralAddressControls = [],
+    driver2Selection = new Set(),
+    archivedRecipients = [],
+    archiveCopyKey = null,
+    archiveCopyId = null;
   const el = (tag, text, cls) => {
     const n = document.createElement(tag);
     if (text != null) n.textContent = text;
@@ -2514,6 +2691,8 @@ Copy only the contents of this code box into the matching Apps Script file.
     const finishFeedback = MealButtonFeedback.begin(trigger);
     $("adminEvents").disabled = true;
     $("showArchived").disabled = true;
+    $("archiveCopy").disabled = true;
+    $("splitRoute").disabled = true;
     $("adminMessage").textContent = "Working…";
     try {
       await fn();
@@ -2525,6 +2704,8 @@ Copy only the contents of this code box into the matching Apps Script file.
       finishFeedback();
       $("adminEvents").disabled = false;
       $("showArchived").disabled = false;
+      $("archiveCopy").disabled = !$("archiveSourceEvent").value || !$("archiveTargetEvent").value;
+      $("splitRoute").disabled = readonly() || !route || route.stops.length<2 || routeUnsaved;
     }
   }
   const dateLabel = (s) =>
@@ -2598,16 +2779,19 @@ Copy only the contents of this code box into the matching Apps Script file.
       $("integrityNotice").textContent = "";
       $("addReferral").disabled = true;
       await reports();
+      if (view === "archiveView") await loadArchivedRecipients();
       return;
     }
     dashboard = await rpc("dashboard", { eventId: id });
     route = await rpc("route", { eventId: id });
+    driver2Selection = new Set(route.stops.filter(r=>r.driver===2).map(r=>r.recipientId));
     routeUnsaved = false;
     renderDashboard();
     renderRequests();
     renderRoute();
     renderSettings();
     if (view === "reportsView") await reports();
+    if (view === "archiveView") await loadArchivedRecipients();
   }
   function renderDashboard() {
     $("integrityNotice").textContent = integrityMessage(dashboard.integrity);
@@ -2632,6 +2816,9 @@ Copy only the contents of this code box into the matching Apps Script file.
       "rejectSelected",
       "optimizeRoute",
       "saveRoute",
+      "splitRoute",
+      "clearRouteSplit",
+      "optimizeRoute2",
       "verifyPickup",
     ].forEach((id) => ($(id).disabled = ro));
     $("settingsForm").inert = ro;
@@ -3013,18 +3200,23 @@ Copy only the contents of this code box into the matching Apps Script file.
           encodeURIComponent(address);
   }
   function renumberRoute() {
-    let n = 0;
-    route.stops.forEach((r, i) => {
-      r.stop = i + 1;
-      n += r.meals;
-      r.runningMeals = n;
+    route.totalMeals = 0;
+    route.routes.forEach(group => {
+      let n = 0;
+      group.stops = route.stops.filter(r=>r.driver===group.driver);
+      group.stops.forEach((r,i) => {
+        r.stop = i+1;
+        r.runningMeals = (n += r.meals);
+      });
+      group.totalMeals = n;
+      route.totalMeals += n;
     });
-    route.totalMeals = n;
   }
   function move(id, delta) {
     const i = route.stops.findIndex((s) => s.recipientId === id),
       j = i + delta;
-    if (j < 0 || j >= route.stops.length) return;
+    if (j < 0 || j >= route.stops.length ||
+        route.stops[i].driver !== route.stops[j].driver) return;
     [route.stops[i], route.stops[j]] = [route.stops[j], route.stops[i]];
     routeUnsaved = true;
     renumberRoute();
@@ -3053,7 +3245,14 @@ Copy only the contents of this code box into the matching Apps Script file.
                 ? "Pickup address needs review in Event Settings. "
                 : "") +
               "Review the addresses, then click Save Manual Order to finalize the route.";
-    $("printRoute").disabled = !route.stops.length || routeUnsaved || !route.isFinal;
+    $("printRoute").disabled = !route.routes[0]?.stops.length || routeUnsaved || !route.isFinal;
+    const second = route.routes.find(x=>x.driver===2);
+    $("printRoute2").hidden = !second;
+    $("printRoute2").disabled = !second || routeUnsaved || !route.isFinal;
+    $("optimizeRoute2").hidden = !second;
+    $("clearRouteSplit").hidden = !second;
+    $("splitRoute").disabled = readonly() || route.stops.length < 2 || routeUnsaved;
+    $("clearRouteSplit").disabled = readonly() || routeUnsaved;
     const optimizationReason = readonly()
       ? "This event is read-only. Reopen / Unarchive it before changing the route."
       : !route.mapsEnabled
@@ -3063,12 +3262,23 @@ Copy only the contents of this code box into the matching Apps Script file.
           : !addressesReady
             ? "Review the pickup address and every recipient address before optimizing."
             : "Google route optimization is enabled in configuration. You may optimize or save a manual order.";
-    $("routingAvailability").textContent = optimizationReason;
+    $("routingAvailability").textContent = optimizationReason + " Select the checkbox beside a stop to assign it to Driver 2, then click Split Route. The split remains saved until you change it.";
     $("optimizeRoute").disabled = readonly() || !route.mapsEnabled || !route.stops.length || !addressesReady;
     $("optimizeRoute").title = optimizationReason;
+    $("optimizeRoute2").disabled = readonly() || !route.mapsEnabled || !second || !addressesReady || routeUnsaved;
     $("saveRoute").disabled = readonly() || !route.stops.length;
     $("routeStops").replaceChildren();
+    let currentDriver = 0, driverPanel = null;
     route.stops.forEach((r) => {
+      if (r.driver !== currentDriver) {
+        currentDriver = r.driver;
+        driverPanel = el("section", null, "route-group");
+        driverPanel.dataset.driver = String(r.driver);
+        const group = route.routes.find(x=>x.driver===r.driver);
+        driverPanel.append(el("h3", "Driver " + r.driver + " — " +
+          group.stops.length + " Stops · " + group.totalMeals + " Meals"));
+        $("routeStops").append(driverPanel);
+      }
       const card = el("article", null, "stop");
       card.dataset.recipientId = r.recipientId;
       const head = el("header");
@@ -3077,6 +3287,23 @@ Copy only the contents of this code box into the matching Apps Script file.
         el("h3", "Stop " + r.stop + " — " + r.recipientName),
       );
       card.append(head);
+      if (!readonly()) {
+        const pick = el("label", null, "check-label no-print"),
+          checkbox = el("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = driver2Selection.has(r.recipientId);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) driver2Selection.add(r.recipientId);
+          else driver2Selection.delete(r.recipientId);
+          $("routeSplitMessage").textContent = driver2Selection.size +
+            " stop(s) selected for Driver 2. Click Split Route to save.";
+        });
+        pick.append(checkbox, el("span", "Assign to Driver 2"));
+        card.append(pick);
+        card.addEventListener("click", ev=>{
+          if(!ev.target.closest("a,button,label,input")) checkbox.click();
+        });
+      }
       const address = el("p", null, "address"),
         link = el("a", r.address);
       link.href = mapsUrl(r.address);
@@ -3104,7 +3331,7 @@ Copy only the contents of this code box into the matching Apps Script file.
           up = button("Move Up", () => move(r.recipientId, -1), "secondary"),
           down = button("Move Down", () => move(r.recipientId, 1), "secondary");
         up.disabled = r.stop === 1;
-        down.disabled = r.stop === route.stops.length;
+        down.disabled = r.stop === route.routes.find(x=>x.driver===r.driver).stops.length;
         controls.append(up, down);
         card.append(controls);
         card.draggable = matchMedia("(pointer:fine)").matches;
@@ -3117,7 +3344,8 @@ Copy only the contents of this code box into the matching Apps Script file.
           ev.preventDefault();
           const i = route.stops.findIndex((x) => x.recipientId === dragId),
             j = route.stops.findIndex((x) => x.recipientId === r.recipientId);
-          if (i < 0 || j < 0 || i === j) return;
+          if (i < 0 || j < 0 || i === j ||
+              route.stops[i].driver !== route.stops[j].driver) return;
           const [row] = route.stops.splice(i, 1);
           route.stops.splice(j, 0, row);
           routeUnsaved = true;
@@ -3125,7 +3353,7 @@ Copy only the contents of this code box into the matching Apps Script file.
           renderRoute();
         });
       }
-      $("routeStops").append(card);
+      driverPanel.append(card);
     });
     if (!route.stops.length)
       $("routeStops").append(el("p", "No Approved recipients for this event."));
@@ -3220,20 +3448,147 @@ Copy only the contents of this code box into the matching Apps Script file.
       ),
     );
   }
+
+  function updateArchiveCount() {
+    const chosen = $("archiveRecipients").querySelectorAll('input[type="checkbox"]:checked').length;
+    $("archiveCount").textContent = chosen + " selected · " +
+      archivedRecipients.length + " archived recipients shown. Maximum 100 per copy.";
+  }
+  async function loadArchivedRecipients() {
+    const source = $("archiveSourceEvent"), target = $("archiveTargetEvent"),
+      oldSource = source.value, oldTarget = target.value;
+    const archives = events.filter(e=>e.Archived===true),
+      destinations = events.filter(e=>e.Archived!==true && e.Status!=="Completed");
+    source.replaceChildren(...archives.map(e=>{
+      const o=el("option",e.EventName+" — "+e.DeliveryDate);o.value=e.EventID;return o;
+    }));
+    target.replaceChildren(...destinations.map(e=>{
+      const o=el("option",e.EventName+" — "+e.DeliveryDate);o.value=e.EventID;return o;
+    }));
+    const currentArchive = dashboard?.event?.Archived === true
+      ? dashboard.event.EventID : null;
+    source.value = archives.some(e=>e.EventID===oldSource)?oldSource:
+      currentArchive && archives.some(e=>e.EventID===currentArchive)
+        ? currentArchive : archives[0]?.EventID||"";
+    target.value = destinations.some(e=>e.EventID===oldTarget)?oldTarget:
+      destinations[0]?.EventID||"";
+    $("archiveCopy").disabled = !source.value || !target.value;
+    $("archiveRecipients").replaceChildren();
+    archivedRecipients = [];
+    if (!source.value) {
+      $("archiveStatus").textContent = "No archived events available yet.";
+      updateArchiveCount();return;
+    }
+    const result = await rpc("archivedRecipients",{eventId:source.value});
+    archivedRecipients = result.recipients;
+    $("archiveStatus").textContent = archivedRecipients.length
+      ? "Only approved recipient records are listed. Copies start Pending and require review."
+      : "This archived event has no approved recipients to copy.";
+    archivedRecipients.forEach(r=>{
+      const card=el("article",null,"request-card");
+      const label=el("label",null,"check-label"),check=el("input");
+      check.type="checkbox";check.value=r.recipientId;
+      check.addEventListener("change",updateArchiveCount);
+      label.append(check,el("span",r.name));
+      card.append(label,el("p",r.address),
+        el("p",r.meals+" meal(s) · "+r.organization,"hint"));
+      $("archiveRecipients").append(card);
+    });
+    updateArchiveCount();
+  }
+  async function copyArchived() {
+    const sourceId=$("archiveSourceEvent").value,
+      targetId=$("archiveTargetEvent").value,
+      ids=[...$("archiveRecipients").querySelectorAll('input[type="checkbox"]:checked')]
+        .map(x=>x.value);
+    if (!sourceId || !targetId || !ids.length)
+      throw new Error("Select an archived event, a destination, and at least one recipient.");
+    if(ids.length>100) throw new Error("Select no more than 100 recipients at a time.");
+    const target = events.find(e=>e.EventID===targetId);
+    const sum=archivedRecipients.filter(r=>ids.includes(r.recipientId))
+      .reduce((n,r)=>n+r.meals,0);
+    if(!confirm("Copy "+ids.length+" recipient(s), totaling "+sum+
+      " meals, into "+target.EventName+"? They will be Pending and addresses need review."))
+      return;
+    const key=JSON.stringify({sourceId,targetId,ids:ids.slice().sort()});
+    if(archiveCopyKey!==key){archiveCopyId=crypto.randomUUID();archiveCopyKey=key;}
+    const result=await rpc("copyArchivedRecipients",
+      {sourceEventId:sourceId,targetEventId:targetId,recipientIds:ids,batchId:archiveCopyId});
+    archiveCopyKey=null;archiveCopyId=null;
+    $("archiveStatus").textContent = result.recipientsCopied+" recipients copied as "+
+      result.referralsCreated+" pending referral(s) ("+
+      result.mealsReserved+" meals). Archived records are unchanged.";
+    // Keep selection visible but clear checked boxes; reloading resets stale details.
+    await refreshEvents(targetId);
+    $("archiveStatus").textContent = result.recipientsCopied+
+      " recipients copied into "+target.EventName+
+      " as Pending. Review and approve them under Requests.";
+  }
+  async function applySplit(ids) {
+    if(!route || readonly() || routeUnsaved)
+      throw new Error("Save any manual ordering changes before splitting.");
+    route=await rpc("splitRoute",
+      {eventId:route.eventId,routeVersion:route.version,driver2Ids:ids});
+    let message = "Split saved. Driver 1: "+route.routes[0].stops.length+
+      " stops. Driver 2: "+(route.routes[1]?.stops.length||0)+" stops.";
+    if(route.mapsEnabled && route.stops.length &&
+       !route.unresolved.length && addressReviewed(route.startAddressStatus)) {
+      for (const group of route.routes.filter(x=>x.stops.length)) {
+        try {
+          route=await rpc("optimize",
+            {eventId:route.eventId,routeVersion:route.version,driver:group.driver});
+        } catch(err) {
+          message += " Automatic optimization incomplete: "+err.message+
+            " Use the individual Optimize buttons after correcting the issue.";
+          break;
+        }
+      }
+      if(!message.includes("incomplete")) message += " Available driver routes optimized.";
+    } else {
+      message += route.mapsEnabled
+        ? " Address review is required before automatic optimization."
+        : " Automatic optimization is currently disabled. Use manual ordering until it is enabled.";
+    }
+    await refresh();
+    $("routeSplitMessage").textContent = message;
+  }
+  function printDriver(driver) {
+    if(routeUnsaved || !route.isFinal) return;
+    document.body.dataset.printDriver = String(driver);
+    window.print();
+  }
+
   document.querySelectorAll("[data-view]").forEach((b) =>
     b.addEventListener("click", () =>
       task(async () => {
         view = b.dataset.view;
-        ["requestsView", "routeView", "settingsView", "reportsView"].forEach(
+        ["requestsView", "routeView", "settingsView", "reportsView", "archiveView"].forEach(
           (id) => ($(id).hidden = id !== view),
         );
         document
           .querySelectorAll("[data-view]")
           .forEach((x) => x.setAttribute("aria-selected", String(x === b)));
         if (view === "reportsView") await reports();
+        if (view === "archiveView") await loadArchivedRecipients();
       }),
     ),
   );
+
+  $("archiveSourceEvent").addEventListener("change",()=>task(loadArchivedRecipients));
+  $("archiveSelectAll").addEventListener("click",()=>{
+    [...$("archiveRecipients").querySelectorAll('input[type="checkbox"]')]
+      .forEach((x,i)=>x.checked=i<100);
+    updateArchiveCount();
+  });
+  $("archiveClear").addEventListener("click",()=>{
+    $("archiveRecipients").querySelectorAll('input[type="checkbox"]')
+      .forEach(x=>x.checked=false);
+    updateArchiveCount();
+  });
+  $("archiveCopy").addEventListener("click",()=>task(copyArchived));
+  $("splitRoute").addEventListener("click",()=>task(()=>
+    applySplit([...driver2Selection])));
+  $("clearRouteSplit").addEventListener("click",()=>task(()=>applySplit([])));
   $("adminEvents").addEventListener("change", () => task(refresh));
   $("showArchived").addEventListener("change", () =>
     task(async () => {
@@ -3403,6 +3758,15 @@ Copy only the contents of this code box into the matching Apps Script file.
       route = await rpc("optimize", {
         eventId: route.eventId,
         routeVersion: route.version,
+        driver: 1,
+      });
+      await refresh();
+    }),
+  );
+  $("optimizeRoute2").addEventListener("click", () =>
+    task(async () => {
+      route = await rpc("optimize", {
+        eventId: route.eventId, routeVersion: route.version, driver: 2,
       });
       await refresh();
     }),
@@ -3418,9 +3782,9 @@ Copy only the contents of this code box into the matching Apps Script file.
       renderRoute();
     }),
   );
-  $("printRoute").addEventListener("click", () => {
-    if (!routeUnsaved && route.isFinal) window.print();
-  });
+  $("printRoute").addEventListener("click", () => printDriver(1));
+  $("printRoute2").addEventListener("click", () => printDriver(2));
+  window.addEventListener("afterprint", () => {delete document.body.dataset.printDriver;});
   ["reportEvent", "reportYear"].forEach((id) =>
     $(id).addEventListener("change", () => task(reports)),
   );
@@ -4339,6 +4703,20 @@ button[aria-busy="true"]::before {
 button[aria-busy="true"]::after { content: " — Loading…"; }
 @keyframes meal-button-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { button[aria-busy="true"]::before { animation: none; } }
+
+/* Archived recipient reuse and independent driver route presentation */
+.route-group { border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin: 1rem 0; background: #fff; }
+.route-group > h3 { margin: 0 0 1rem; }
+#archiveRecipients .request-card { margin-bottom: .65rem; }
+#archiveRecipients .request-card p { margin: .3rem 0; overflow-wrap: anywhere; }
+#routeSplitMessage, #archiveStatus { overflow-wrap: anywhere; }
+@media print {
+  #archiveView { display: none !important; }
+  .route-group { border: 0; padding: 0; margin: 0; break-inside: auto; }
+  .route-group > h3 { margin: .1in 0; page-break-after: avoid; }
+  body[data-print-driver="1"] .route-group[data-driver="2"],
+  body[data-print-driver="2"] .route-group[data-driver="1"] { display: none !important; }
+}
 ```
 
 ## File 18: appsscript.json
