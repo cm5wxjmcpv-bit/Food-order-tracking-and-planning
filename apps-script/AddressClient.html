@@ -52,10 +52,12 @@ window.MealAddresses = (() => {
         node(
           "p",
           result.confident
-            ? "Please confirm the address for delivery."
-            : "This address could not be confidently confirmed. You may edit it or keep it for administrator review.",
+            ? "Google has validated the recommended address. Confirm your choice, then save the form to apply it."
+            : "Google can suggest an address without verifying that it is deliverable. Accepting a suggestion will keep the address marked Needs Review.",
         ),
       );
+      if (result.reviewMessage)
+        d.append(node("p", result.reviewMessage));
       if (result.unitIssue)
         d.append(
           node(
@@ -78,7 +80,8 @@ window.MealAddresses = (() => {
         resolve(value);
       };
       for (const [label, value] of [
-        ["Use Recommended", "recommended"],
+        [result.confident ? "Use Recommended — Google Verified" :
+          "Use Recommended — Still Needs Review", "recommended"],
         ["Keep What I Entered", "original"],
         ["Edit", "edit"],
       ]) {
@@ -203,7 +206,7 @@ window.MealAddresses = (() => {
             checked = original;
             receipt = "";
             status.textContent =
-              "Needs Review — address checking is currently unavailable.";
+              "Needs Review — Google validation is unavailable. The saved address will require administrator review.";
             return true;
           }
           status.textContent = "Checking address…";
@@ -214,7 +217,8 @@ window.MealAddresses = (() => {
             sessionToken: session || "",
           });
         } catch (_) {
-          result = { original, confident: false };
+          result = { original, confident: false,
+            reviewMessage: "Google validation could not be completed. This address will need administrator review." };
         } finally {
           session = null;
         }
@@ -243,8 +247,9 @@ window.MealAddresses = (() => {
         checked = input.value.trim();
         status.textContent =
           result.confident && (choice === "recommended" || result.equivalent)
-            ? "Address Verified"
-            : "Needs Review";
+            ? "Google verified this address. Save the form to apply the reviewed address."
+            : "Needs Review — " + (result.reviewMessage ||
+              "Google could not verify this address. Saving the form will not mark it verified.");
         return true;
       })();
       try {
