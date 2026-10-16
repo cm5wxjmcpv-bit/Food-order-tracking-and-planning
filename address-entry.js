@@ -170,7 +170,7 @@ window.MealAddresses = (() => {
           : "Needs Review";
     status.textContent = labelStatus(initialStatus);
     const emailInStreetField = (value) =>
-      /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value);
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
     const autofillMessage =
       "An email address was inserted into the delivery street address field. Enter the recipient's street address instead.";
     const clear = () => {
