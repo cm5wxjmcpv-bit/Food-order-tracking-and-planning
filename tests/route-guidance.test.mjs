@@ -17,11 +17,14 @@ function view({reviewed = true, final = false, maps = false, empty = false} = {}
     unresolved: reviewed ? [] : [{recipientId: 'synthetic-stop'}],
     stops: empty ? [] : [{recipientId: 'synthetic-stop', stop: 1, recipientName: 'Synthetic Recipient',
       address: '100 Synthetic Lane', meals: 3, runningMeals: 3, addressStatus: reviewed ? 'Confirmed' : 'Needs Review'}] };
+  route.stops.forEach(stop => {stop.driver = 1;});
+  route.routes = [{driver:1,stops:route.stops,totalMeals:empty?0:3}];
   const source = fs.readFileSync('apps-script/AdminClient.html', 'utf8');
   const helpers = source.slice(source.indexOf('  const el ='), source.indexOf('  const addressCall ='));
   const render = source.slice(source.indexOf('  function renderRoute()'), source.indexOf('  function renderSettings()'));
   vm.runInNewContext(helpers + render + '\nrenderRoute();', {
     document: {createElement: () => new Element()}, $: get, route, routeUnsaved: false,
+    driver2Selection: new Set(),
     readonly: () => false, addressReviewed: status => status === 'Confirmed',
     dateLabel: value => value, mapsUrl: () => 'https://maps.example.test/', matchMedia: () => ({matches: false}) });
   return nodes;
