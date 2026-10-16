@@ -337,7 +337,12 @@
     input.name = name;
     if (type !== "textarea") input.type = type;
     input.value = value ?? "";
+    input.autocomplete = "off";
     input.maxLength = max;
+    if (type === "email") {
+      input.autocapitalize = "none";
+      input.spellcheck = false;
+    }
     if (type === "number") {
       input.min = "1";
       input.max = "10000";
@@ -1043,6 +1048,9 @@
     task(async () => {
       if (!(await MealAddresses.prepareAll($("referralEditor")))) return;
       const payload = editorPayload();
+      if (editing && payload.organizationEmail !== editing.OrganizationEmail &&
+          !confirm("The referring organization's email address changed. Save this updated contact email?")) return;
+      if (!$("referralEditor").reportValidity()) return;
       try {
         await rpc(editing ? "editReferral" : "createReferral", payload);
         $("referralDialog").close();
