@@ -414,12 +414,14 @@
       card.append(
         el(
           "p",
-          addressReviewed(r.AddressStatus)
-            ? r.AddressStatus === "Manually Reviewed"
-              ? "Address manually reviewed (Google validation not performed)"
-              : "Address confirmed"
-            : "Address Needs Review",
-          addressReviewed(r.AddressStatus) ? "hint" : "warning",
+          "Currently saved address: " +
+            (addressReviewed(r.AddressStatus)
+              ? r.AddressStatus === "Manually Reviewed"
+                ? "Manually Reviewed (Google validation not performed)"
+                : "Google Verified"
+              : "Needs Review") +
+            ". Changes in this editor do not take effect until Save Referral is clicked.",
+          "hint",
         ),
       );
       if (r.matches?.length) {
@@ -537,7 +539,7 @@
         }
       }
       if (current()) $("editorMessage").textContent =
-        "Address checks finished. Click Save Reviewed Addresses to save your choices. Any unconfirmed address remains Address Needs Review.";
+        "Address checks finished. Click Save Reviewed Addresses to store the changes. A Google suggestion that could not be verified will remain Needs Review; you may manually review that saved address afterward.";
     } catch (error) {
       if (current()) $("editorMessage").textContent = error.message;
       throw error;
@@ -758,7 +760,7 @@
       ? e.StartAddressStatus === "Manually Reviewed"
         ? "Pickup address manually reviewed (Google validation not performed)."
         : "Pickup address confirmed."
-      : "Pickup Address Needs Review";
+      : "Saved Pickup Address Needs Review. Changes take effect after Save Event Settings.";
   }
   function eventPayload(f) {
     return {
