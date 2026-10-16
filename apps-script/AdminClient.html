@@ -11,7 +11,11 @@
     dragId = null,
     createId = null,
     routeUnsaved = false,
-    referralAddressControls = [];
+    referralAddressControls = [],
+    driver2Selection = new Set(),
+    archivedRecipients = [],
+    archiveCopyKey = null,
+    archiveCopyId = null;
   const el = (tag, text, cls) => {
     const n = document.createElement(tag);
     if (text != null) n.textContent = text;
@@ -68,6 +72,8 @@
     const finishFeedback = MealButtonFeedback.begin(trigger);
     $("adminEvents").disabled = true;
     $("showArchived").disabled = true;
+    $("archiveCopy").disabled = true;
+    $("splitRoute").disabled = true;
     $("adminMessage").textContent = "Working…";
     try {
       await fn();
@@ -79,6 +85,8 @@
       finishFeedback();
       $("adminEvents").disabled = false;
       $("showArchived").disabled = false;
+      $("archiveCopy").disabled = !$("archiveSourceEvent").value || !$("archiveTargetEvent").value;
+      $("splitRoute").disabled = readonly() || !route || route.stops.length<2 || routeUnsaved;
     }
   }
   const dateLabel = (s) =>
@@ -152,16 +160,19 @@
       $("integrityNotice").textContent = "";
       $("addReferral").disabled = true;
       await reports();
+      if (view === "archiveView") await loadArchivedRecipients();
       return;
     }
     dashboard = await rpc("dashboard", { eventId: id });
     route = await rpc("route", { eventId: id });
+    driver2Selection = new Set(route.stops.filter(r=>r.driver===2).map(r=>r.recipientId));
     routeUnsaved = false;
     renderDashboard();
     renderRequests();
     renderRoute();
     renderSettings();
     if (view === "reportsView") await reports();
+    if (view === "archiveView") await loadArchivedRecipients();
   }
   function renderDashboard() {
     $("integrityNotice").textContent = integrityMessage(dashboard.integrity);
@@ -186,6 +197,9 @@
       "rejectSelected",
       "optimizeRoute",
       "saveRoute",
+      "splitRoute",
+      "clearRouteSplit",
+      "optimizeRoute2",
       "verifyPickup",
     ].forEach((id) => ($(id).disabled = ro));
     $("settingsForm").inert = ro;
@@ -323,7 +337,12 @@
     input.name = name;
     if (type !== "textarea") input.type = type;
     input.value = value ?? "";
+    input.autocomplete = "off";
     input.maxLength = max;
+    if (type === "email") {
+      input.autocapitalize = "none";
+      input.spellcheck = false;
+    }
     if (type === "number") {
       input.min = "1";
       input.max = "10000";
@@ -400,12 +419,14 @@
       card.append(
         el(
           "p",
-          addressReviewed(r.AddressStatus)
-            ? r.AddressStatus === "Manually Reviewed"
-              ? "Address manually reviewed (Google validation not performed)"
-              : "Address confirmed"
-            : "Address Needs Review",
-          addressReviewed(r.AddressStatus) ? "hint" : "warning",
+          "Currently saved address: " +
+            (addressReviewed(r.AddressStatus)
+              ? r.AddressStatus === "Manually Reviewed"
+                ? "Manually Reviewed (Google validation not performed)"
+                : "Google Verified"
+              : "Needs Review") +
+            ". Changes in this editor do not take effect until Save Referral is clicked.",
+          "hint",
         ),
       );
       if (r.matches?.length) {
@@ -523,7 +544,7 @@
         }
       }
       if (current()) $("editorMessage").textContent =
-        "Address checks finished. Click Save Reviewed Addresses to save your choices. Any unconfirmed address remains Address Needs Review.";
+        "Address checks finished. Click Save Reviewed Addresses to store the changes. A Google suggestion that could not be verified will remain Needs Review; you may manually review that saved address afterward.";
     } catch (error) {
       if (current()) $("editorMessage").textContent = error.message;
       throw error;
@@ -567,18 +588,23 @@
           encodeURIComponent(address);
   }
   function renumberRoute() {
-    let n = 0;
-    route.stops.forEach((r, i) => {
-      r.stop = i + 1;
-      n += r.meals;
-      r.runningMeals = n;
+    route.totalMeals = 0;
+    route.routes.forEach(group => {
+      let n = 0;
+      group.stops = route.stops.filter(r=>r.driver===group.driver);
+      group.stops.forEach((r,i) => {
+        r.stop = i+1;
+        r.runningMeals = (n += r.meals);
+      });
+      group.totalMeals = n;
+      route.totalMeals += n;
     });
-    route.totalMeals = n;
   }
   function move(id, delta) {
     const i = route.stops.findIndex((s) => s.recipientId === id),
       j = i + delta;
-    if (j < 0 || j >= route.stops.length) return;
+    if (j < 0 || j >= route.stops.length ||
+        route.stops[i].driver !== route.stops[j].driver) return;
     [route.stops[i], route.stops[j]] = [route.stops[j], route.stops[i]];
     routeUnsaved = true;
     renumberRoute();
@@ -607,7 +633,14 @@
                 ? "Pickup address needs review in Event Settings. "
                 : "") +
               "Review the addresses, then click Save Manual Order to finalize the route.";
-    $("printRoute").disabled = !route.stops.length || routeUnsaved || !route.isFinal;
+    $("printRoute").disabled = !route.routes[0]?.stops.length || routeUnsaved || !route.isFinal;
+    const second = route.routes.find(x=>x.driver===2);
+    $("printRoute2").hidden = !second;
+    $("printRoute2").disabled = !second || routeUnsaved || !route.isFinal;
+    $("optimizeRoute2").hidden = !second;
+    $("clearRouteSplit").hidden = !second;
+    $("splitRoute").disabled = readonly() || route.stops.length < 2 || routeUnsaved;
+    $("clearRouteSplit").disabled = readonly() || routeUnsaved;
     const optimizationReason = readonly()
       ? "This event is read-only. Reopen / Unarchive it before changing the route."
       : !route.mapsEnabled
@@ -617,12 +650,23 @@
           : !addressesReady
             ? "Review the pickup address and every recipient address before optimizing."
             : "Google route optimization is enabled in configuration. You may optimize or save a manual order.";
-    $("routingAvailability").textContent = optimizationReason;
+    $("routingAvailability").textContent = optimizationReason + " Select the checkbox beside a stop to assign it to Driver 2, then click Split Route. The split remains saved until you change it.";
     $("optimizeRoute").disabled = readonly() || !route.mapsEnabled || !route.stops.length || !addressesReady;
     $("optimizeRoute").title = optimizationReason;
+    $("optimizeRoute2").disabled = readonly() || !route.mapsEnabled || !second || !addressesReady || routeUnsaved;
     $("saveRoute").disabled = readonly() || !route.stops.length;
     $("routeStops").replaceChildren();
+    let currentDriver = 0, driverPanel = null;
     route.stops.forEach((r) => {
+      if (r.driver !== currentDriver) {
+        currentDriver = r.driver;
+        driverPanel = el("section", null, "route-group");
+        driverPanel.dataset.driver = String(r.driver);
+        const group = route.routes.find(x=>x.driver===r.driver);
+        driverPanel.append(el("h3", "Driver " + r.driver + " — " +
+          group.stops.length + " Stops · " + group.totalMeals + " Meals"));
+        $("routeStops").append(driverPanel);
+      }
       const card = el("article", null, "stop");
       card.dataset.recipientId = r.recipientId;
       const head = el("header");
@@ -631,6 +675,23 @@
         el("h3", "Stop " + r.stop + " — " + r.recipientName),
       );
       card.append(head);
+      if (!readonly()) {
+        const pick = el("label", null, "check-label no-print"),
+          checkbox = el("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = driver2Selection.has(r.recipientId);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) driver2Selection.add(r.recipientId);
+          else driver2Selection.delete(r.recipientId);
+          $("routeSplitMessage").textContent = driver2Selection.size +
+            " stop(s) selected for Driver 2. Click Split Route to save.";
+        });
+        pick.append(checkbox, el("span", "Assign to Driver 2"));
+        card.append(pick);
+        card.addEventListener("click", ev=>{
+          if(!ev.target.closest("a,button,label,input")) checkbox.click();
+        });
+      }
       const address = el("p", null, "address"),
         link = el("a", r.address);
       link.href = mapsUrl(r.address);
@@ -658,7 +719,7 @@
           up = button("Move Up", () => move(r.recipientId, -1), "secondary"),
           down = button("Move Down", () => move(r.recipientId, 1), "secondary");
         up.disabled = r.stop === 1;
-        down.disabled = r.stop === route.stops.length;
+        down.disabled = r.stop === route.routes.find(x=>x.driver===r.driver).stops.length;
         controls.append(up, down);
         card.append(controls);
         card.draggable = matchMedia("(pointer:fine)").matches;
@@ -671,7 +732,8 @@
           ev.preventDefault();
           const i = route.stops.findIndex((x) => x.recipientId === dragId),
             j = route.stops.findIndex((x) => x.recipientId === r.recipientId);
-          if (i < 0 || j < 0 || i === j) return;
+          if (i < 0 || j < 0 || i === j ||
+              route.stops[i].driver !== route.stops[j].driver) return;
           const [row] = route.stops.splice(i, 1);
           route.stops.splice(j, 0, row);
           routeUnsaved = true;
@@ -679,7 +741,7 @@
           renderRoute();
         });
       }
-      $("routeStops").append(card);
+      driverPanel.append(card);
     });
     if (!route.stops.length)
       $("routeStops").append(el("p", "No Approved recipients for this event."));
@@ -703,7 +765,7 @@
       ? e.StartAddressStatus === "Manually Reviewed"
         ? "Pickup address manually reviewed (Google validation not performed)."
         : "Pickup address confirmed."
-      : "Pickup Address Needs Review";
+      : "Saved Pickup Address Needs Review. Changes take effect after Save Event Settings.";
   }
   function eventPayload(f) {
     return {
@@ -774,20 +836,147 @@
       ),
     );
   }
+
+  function updateArchiveCount() {
+    const chosen = $("archiveRecipients").querySelectorAll('input[type="checkbox"]:checked').length;
+    $("archiveCount").textContent = chosen + " selected · " +
+      archivedRecipients.length + " archived recipients shown. Maximum 100 per copy.";
+  }
+  async function loadArchivedRecipients() {
+    const source = $("archiveSourceEvent"), target = $("archiveTargetEvent"),
+      oldSource = source.value, oldTarget = target.value;
+    const archives = events.filter(e=>e.Archived===true),
+      destinations = events.filter(e=>e.Archived!==true && e.Status!=="Completed");
+    source.replaceChildren(...archives.map(e=>{
+      const o=el("option",e.EventName+" — "+e.DeliveryDate);o.value=e.EventID;return o;
+    }));
+    target.replaceChildren(...destinations.map(e=>{
+      const o=el("option",e.EventName+" — "+e.DeliveryDate);o.value=e.EventID;return o;
+    }));
+    const currentArchive = dashboard?.event?.Archived === true
+      ? dashboard.event.EventID : null;
+    source.value = archives.some(e=>e.EventID===oldSource)?oldSource:
+      currentArchive && archives.some(e=>e.EventID===currentArchive)
+        ? currentArchive : archives[0]?.EventID||"";
+    target.value = destinations.some(e=>e.EventID===oldTarget)?oldTarget:
+      destinations[0]?.EventID||"";
+    $("archiveCopy").disabled = !source.value || !target.value;
+    $("archiveRecipients").replaceChildren();
+    archivedRecipients = [];
+    if (!source.value) {
+      $("archiveStatus").textContent = "No archived events available yet.";
+      updateArchiveCount();return;
+    }
+    const result = await rpc("archivedRecipients",{eventId:source.value});
+    archivedRecipients = result.recipients;
+    $("archiveStatus").textContent = archivedRecipients.length
+      ? "Only approved recipient records are listed. Copies start Pending and require review."
+      : "This archived event has no approved recipients to copy.";
+    archivedRecipients.forEach(r=>{
+      const card=el("article",null,"request-card");
+      const label=el("label",null,"check-label"),check=el("input");
+      check.type="checkbox";check.value=r.recipientId;
+      check.addEventListener("change",updateArchiveCount);
+      label.append(check,el("span",r.name));
+      card.append(label,el("p",r.address),
+        el("p",r.meals+" meal(s) · "+r.organization,"hint"));
+      $("archiveRecipients").append(card);
+    });
+    updateArchiveCount();
+  }
+  async function copyArchived() {
+    const sourceId=$("archiveSourceEvent").value,
+      targetId=$("archiveTargetEvent").value,
+      ids=[...$("archiveRecipients").querySelectorAll('input[type="checkbox"]:checked')]
+        .map(x=>x.value);
+    if (!sourceId || !targetId || !ids.length)
+      throw new Error("Select an archived event, a destination, and at least one recipient.");
+    if(ids.length>100) throw new Error("Select no more than 100 recipients at a time.");
+    const target = events.find(e=>e.EventID===targetId);
+    const sum=archivedRecipients.filter(r=>ids.includes(r.recipientId))
+      .reduce((n,r)=>n+r.meals,0);
+    if(!confirm("Copy "+ids.length+" recipient(s), totaling "+sum+
+      " meals, into "+target.EventName+"? They will be Pending and addresses need review."))
+      return;
+    const key=JSON.stringify({sourceId,targetId,ids:ids.slice().sort()});
+    if(archiveCopyKey!==key){archiveCopyId=crypto.randomUUID();archiveCopyKey=key;}
+    const result=await rpc("copyArchivedRecipients",
+      {sourceEventId:sourceId,targetEventId:targetId,recipientIds:ids,batchId:archiveCopyId});
+    archiveCopyKey=null;archiveCopyId=null;
+    $("archiveStatus").textContent = result.recipientsCopied+" recipients copied as "+
+      result.referralsCreated+" pending referral(s) ("+
+      result.mealsReserved+" meals). Archived records are unchanged.";
+    // Keep selection visible but clear checked boxes; reloading resets stale details.
+    await refreshEvents(targetId);
+    $("archiveStatus").textContent = result.recipientsCopied+
+      " recipients copied into "+target.EventName+
+      " as Pending. Review and approve them under Requests.";
+  }
+  async function applySplit(ids) {
+    if(!route || readonly() || routeUnsaved)
+      throw new Error("Save any manual ordering changes before splitting.");
+    route=await rpc("splitRoute",
+      {eventId:route.eventId,routeVersion:route.version,driver2Ids:ids});
+    let message = "Split saved. Driver 1: "+route.routes[0].stops.length+
+      " stops. Driver 2: "+(route.routes[1]?.stops.length||0)+" stops.";
+    if(route.mapsEnabled && route.stops.length &&
+       !route.unresolved.length && addressReviewed(route.startAddressStatus)) {
+      for (const group of route.routes.filter(x=>x.stops.length)) {
+        try {
+          route=await rpc("optimize",
+            {eventId:route.eventId,routeVersion:route.version,driver:group.driver});
+        } catch(err) {
+          message += " Automatic optimization incomplete: "+err.message+
+            " Use the individual Optimize buttons after correcting the issue.";
+          break;
+        }
+      }
+      if(!message.includes("incomplete")) message += " Available driver routes optimized.";
+    } else {
+      message += route.mapsEnabled
+        ? " Address review is required before automatic optimization."
+        : " Automatic optimization is currently disabled. Use manual ordering until it is enabled.";
+    }
+    await refresh();
+    $("routeSplitMessage").textContent = message;
+  }
+  function printDriver(driver) {
+    if(routeUnsaved || !route.isFinal) return;
+    document.body.dataset.printDriver = String(driver);
+    window.print();
+  }
+
   document.querySelectorAll("[data-view]").forEach((b) =>
     b.addEventListener("click", () =>
       task(async () => {
         view = b.dataset.view;
-        ["requestsView", "routeView", "settingsView", "reportsView"].forEach(
+        ["requestsView", "routeView", "settingsView", "reportsView", "archiveView"].forEach(
           (id) => ($(id).hidden = id !== view),
         );
         document
           .querySelectorAll("[data-view]")
           .forEach((x) => x.setAttribute("aria-selected", String(x === b)));
         if (view === "reportsView") await reports();
+        if (view === "archiveView") await loadArchivedRecipients();
       }),
     ),
   );
+
+  $("archiveSourceEvent").addEventListener("change",()=>task(loadArchivedRecipients));
+  $("archiveSelectAll").addEventListener("click",()=>{
+    [...$("archiveRecipients").querySelectorAll('input[type="checkbox"]')]
+      .forEach((x,i)=>x.checked=i<100);
+    updateArchiveCount();
+  });
+  $("archiveClear").addEventListener("click",()=>{
+    $("archiveRecipients").querySelectorAll('input[type="checkbox"]')
+      .forEach(x=>x.checked=false);
+    updateArchiveCount();
+  });
+  $("archiveCopy").addEventListener("click",()=>task(copyArchived));
+  $("splitRoute").addEventListener("click",()=>task(()=>
+    applySplit([...driver2Selection])));
+  $("clearRouteSplit").addEventListener("click",()=>task(()=>applySplit([])));
   $("adminEvents").addEventListener("change", () => task(refresh));
   $("showArchived").addEventListener("change", () =>
     task(async () => {
@@ -859,6 +1048,9 @@
     task(async () => {
       if (!(await MealAddresses.prepareAll($("referralEditor")))) return;
       const payload = editorPayload();
+      if (editing && payload.organizationEmail !== editing.OrganizationEmail &&
+          !confirm("The referring organization's email address changed. Save this updated contact email?")) return;
+      if (!$("referralEditor").reportValidity()) return;
       try {
         await rpc(editing ? "editReferral" : "createReferral", payload);
         $("referralDialog").close();
@@ -957,6 +1149,15 @@
       route = await rpc("optimize", {
         eventId: route.eventId,
         routeVersion: route.version,
+        driver: 1,
+      });
+      await refresh();
+    }),
+  );
+  $("optimizeRoute2").addEventListener("click", () =>
+    task(async () => {
+      route = await rpc("optimize", {
+        eventId: route.eventId, routeVersion: route.version, driver: 2,
       });
       await refresh();
     }),
@@ -972,9 +1173,9 @@
       renderRoute();
     }),
   );
-  $("printRoute").addEventListener("click", () => {
-    if (!routeUnsaved && route.isFinal) window.print();
-  });
+  $("printRoute").addEventListener("click", () => printDriver(1));
+  $("printRoute2").addEventListener("click", () => printDriver(2));
+  window.addEventListener("afterprint", () => {delete document.body.dataset.printDriver;});
   ["reportEvent", "reportYear"].forEach((id) =>
     $(id).addEventListener("change", () => task(reports)),
   );

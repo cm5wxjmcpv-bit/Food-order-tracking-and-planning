@@ -482,3 +482,17 @@ button[aria-busy="true"]::before {
 button[aria-busy="true"]::after { content: " — Loading…"; }
 @keyframes meal-button-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { button[aria-busy="true"]::before { animation: none; } }
+
+/* Archived recipient reuse and independent driver route presentation */
+.route-group { border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin: 1rem 0; background: #fff; }
+.route-group > h3 { margin: 0 0 1rem; }
+#archiveRecipients .request-card { margin-bottom: .65rem; }
+#archiveRecipients .request-card p { margin: .3rem 0; overflow-wrap: anywhere; }
+#routeSplitMessage, #archiveStatus { overflow-wrap: anywhere; }
+@media print {
+  #archiveView { display: none !important; }
+  .route-group { border: 0; padding: 0; margin: 0; break-inside: auto; }
+  .route-group > h3 { margin: .1in 0; page-break-after: avoid; }
+  body[data-print-driver="1"] .route-group[data-driver="2"],
+  body[data-print-driver="2"] .route-group[data-driver="1"] { display: none !important; }
+}

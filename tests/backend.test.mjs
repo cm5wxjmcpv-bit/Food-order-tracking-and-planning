@@ -965,3 +965,92 @@ test("routing diagnostic functions require an independently authorized administr
   assert.throws(() => h.ctx.authorizeRouting(), /approved administrator/);
   assert.equal(h.state.apiCalls, 0);
 });
+
+
+test("archived recipients are copied as new pending referrals without changing history, and retries are idempotent", () => {
+  const h=harness(), old=createEvent(h,20);
+  const receipt=ok(h.public(payload(old.EventID,[2,3])));
+  ok(approve(h,[receipt.referralId]));
+  ok(h.admin("archive",{eventId:old.EventID,version:old.Version,mode:"archive",confirmed:true}));
+  const oldRec=h.get("RECIPIENTS").filter(r=>r.EventID===old.EventID);
+  const snapshot=JSON.stringify(oldRec);
+  const target=createEvent(h,20);
+  const read=ok(h.admin("archivedRecipients",{eventId:old.EventID}));
+  assert.equal(read.recipients.length,2);
+  const request={sourceEventId:old.EventID,targetEventId:target.EventID,
+    batchId:crypto.randomUUID(),recipientIds:read.recipients.map(r=>r.recipientId)};
+  const result=ok(h.admin("copyArchivedRecipients",request));
+  assert.equal(result.recipientsCopied,2);
+  assert.equal(result.mealsReserved,5);
+  assert.equal(result.referralsCreated,1);
+  const copied=h.get("RECIPIENTS").filter(r=>r.EventID===target.EventID);
+  assert.equal(copied.length,2);
+  assert.equal(copied.every(r=>r.AddressStatus==="Needs Review"),true);
+  assert.equal(copied.every(r=>r.RecipientID!==oldRec[0].RecipientID &&
+    r.RecipientID!==oldRec[1].RecipientID),true);
+  assert.equal(h.get("REFERRALS").find(r=>r.EventID===target.EventID).Status,"Pending");
+  assert.equal(JSON.stringify(h.get("RECIPIENTS").filter(r=>r.EventID===old.EventID)),snapshot);
+  const after=h.snapshot();
+  assert.deepEqual(ok(h.admin("copyArchivedRecipients",request)),result);
+  assert.equal(h.snapshot(),after);
+  code(h.admin("copyArchivedRecipients",{...request,batchId:crypto.randomUUID()}),"DUPLICATE");
+});
+test("archive copy validates source, capacity, and does not expose private rows publicly", () => {
+  const h=harness(), source=createEvent(h,10), target=createEvent(h,2);
+  const receipt=ok(h.public(payload(source.EventID,[3])));
+  ok(approve(h,[receipt.referralId]));
+  const recipientId=h.get("RECIPIENTS")[0].RecipientID;
+  const request={sourceEventId:source.EventID,targetEventId:target.EventID,
+    batchId:crypto.randomUUID(),recipientIds:[recipientId]};
+  const before=h.snapshot();
+  code(h.admin("copyArchivedRecipients",request),"INVALID");
+  assert.equal(h.snapshot(),before);
+  ok(h.admin("archive",{eventId:source.EventID,version:source.Version,mode:"archive",confirmed:true}));
+  const archivedSnapshot=h.snapshot();
+  code(h.admin("copyArchivedRecipients",request),"CAPACITY");
+  assert.equal(h.snapshot(),archivedSnapshot);
+  h.state.active=h.state.effective="not-admin@example.test";
+  code(h.admin("archivedRecipients",{eventId:source.EventID}),"FORBIDDEN");
+  code(h.admin("copyArchivedRecipients",request),"FORBIDDEN");
+  assert.equal(h.snapshot(),archivedSnapshot);
+  assert.equal(JSON.stringify(h.ctx.publicEvents_()).includes("Synthetic Recipient"),false);
+});
+test("driver split persists assignments, supports manual ordering, and can be cleared", () => {
+  const h=harness(), e=createEvent(h);
+  const receipt=ok(h.public(payload(e.EventID,[1,2,3])));
+  ok(approve(h,[receipt.referralId]));
+  const first=ok(h.admin("route",{eventId:e.EventID}));
+  assert.equal(first.routes.length,1);
+  const secondId=first.stops[1].recipientId;
+  const split=ok(h.admin("splitRoute",
+    {eventId:e.EventID,routeVersion:first.version,driver2Ids:[secondId]}));
+  assert.equal(split.routes.length,2);
+  assert.deepEqual(split.routes.map(x=>x.stops.length),[2,1]);
+  assert.equal(split.routes[1].stops[0].recipientId,secondId);
+  code(h.admin("splitRoute",
+    {eventId:e.EventID,routeVersion:first.version,driver2Ids:[secondId]}),"CONFLICT");
+  const ordered=ok(h.admin("reorder",{eventId:e.EventID,routeVersion:split.version,
+    recipientIds:split.routes[0].stops.map(x=>x.recipientId).reverse().concat(secondId)}));
+  assert.equal(ordered.routes[1].stops[0].recipientId,secondId);
+  assert.equal(ordered.routes[0].stops[0].recipientId,split.routes[0].stops[1].recipientId);
+  assert.equal(ordered.routes[0].stops[0].stop,1);
+  assert.equal(ordered.routes[1].stops[0].stop,1);
+  const cleared=ok(h.admin("splitRoute",
+    {eventId:e.EventID,routeVersion:ordered.version,driver2Ids:[]}));
+  assert.equal(cleared.routes.length,1);
+  assert.equal(cleared.routes[0].stops.length,3);
+});
+test("driver split rejects missing, repeated, or all selected stops without changing data", () => {
+  const h=harness(), e=createEvent(h);
+  const receipt=ok(h.public(payload(e.EventID,[1,1])));
+  ok(approve(h,[receipt.referralId]));
+  const route=ok(h.admin("route",{eventId:e.EventID})), before=h.snapshot();
+  for(const driver2Ids of [
+    [route.stops[0].recipientId,route.stops[0].recipientId],
+    ["invalid-id"],route.stops.map(x=>x.recipientId)
+  ]) {
+    code(h.admin("splitRoute",{eventId:e.EventID,routeVersion:route.version,
+      driver2Ids}),"INVALID");
+    assert.equal(h.snapshot(),before);
+  }
+});

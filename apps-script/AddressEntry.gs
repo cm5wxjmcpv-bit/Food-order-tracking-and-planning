@@ -210,12 +210,20 @@ function addressPreview_(p) {
     sameAddress_(original, safe.address) &&
     !v.hasReplacedComponents &&
     !v.hasInferredComponents;
+  const reviewMessage = confident
+    ? ""
+    : unitIssue
+      ? "Google could not confirm the apartment or unit information. Keep the unit and review it manually."
+      : !["PREMISE", "SUB_PREMISE"].includes(v.validationGranularity)
+        ? "Google identified a street or area but did not confirm a specific delivery address."
+        : "Google could not confirm every required part of this delivery address.";
   return {
     original,
     recommended: safe.address,
     confident,
     equivalent,
     unitIssue,
+    reviewMessage,
     originalReceipt: addressReceipt_(
       original,
       confident && equivalent ? "Confirmed" : "Needs Review",

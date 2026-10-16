@@ -42,21 +42,23 @@
                 name="organizationName"
                 maxlength="160"
                 required
-                autocomplete="organization" /></label
+                autocomplete="section-referrer organization" /></label
             ><label
               >Email address<input
                 type="email"
                 name="organizationEmail"
+                autocapitalize="none"
+                spellcheck="false"
                 maxlength="254"
                 required
-                autocomplete="email" /></label
+                autocomplete="section-referrer email" /></label
             ><label
               >Phone number<input
                 type="tel"
                 name="organizationPhone"
                 maxlength="40"
                 required
-                autocomplete="tel"
+                autocomplete="section-referrer tel"
             /></label>
           </div>
         </fieldset>
@@ -115,6 +117,8 @@
           ><label class="full"
             >Street address<input
               name="address"
+              autocapitalize="words"
+              spellcheck="false"
               maxlength="500"
               required
               autocomplete="off"

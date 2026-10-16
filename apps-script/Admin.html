@@ -43,6 +43,9 @@
             Event Settings</button
           ><button data-view="reportsView" aria-selected="false">
             Reports
+          </button
+          ><button data-view="archiveView" aria-selected="false">
+            Archived Recipients
           </button>
         </nav>
         <p id="adminMessage" role="status" aria-live="polite"></p>
@@ -57,6 +60,23 @@
         </div>
         <div id="requestCards"></div>
       </section>
+
+      <section id="archiveView" hidden class="no-print">
+        <h2>Reuse Recipients from Archived Events</h2>
+        <p>Choose a past event, select recipients, and copy them to another event. Original archived records will not change. Copied requests are Pending and addresses must be reviewed again.</p>
+        <div class="grid">
+          <label>Archived event<select id="archiveSourceEvent"></select></label>
+          <label>New event<select id="archiveTargetEvent"></select></label>
+        </div>
+        <div class="actions">
+          <button id="archiveSelectAll" type="button" class="secondary">Select All</button>
+          <button id="archiveClear" type="button" class="secondary">Clear Selection</button>
+          <button id="archiveCopy" type="button">Add Selected to Event</button>
+        </div>
+        <p id="archiveCount" class="hint" aria-live="polite"></p>
+        <p id="archiveStatus" role="status" aria-live="polite"></p>
+        <div id="archiveRecipients"></div>
+      </section>
       <section id="routeView" hidden>
         <div class="route-header">
           <h2 id="routeTitle">Delivery Route</h2>
@@ -66,17 +86,21 @@
           <p id="routingAvailability" class="hint no-print"></p>
         </div>
         <div class="actions no-print">
-          <button id="optimizeRoute">Optimize Route</button
+          <button id="optimizeRoute">Optimize Driver 1</button
+          ><button id="optimizeRoute2" hidden>Optimize Driver 2</button
           ><button id="saveRoute">Save Manual Order</button
+          ><button id="splitRoute" class="secondary">Split Route</button
+          ><button id="clearRouteSplit" class="secondary" hidden>Clear Split</button
           ><button id="printRoute" class="secondary">
-            Print Delivery Sheet
-          </button>
+            Print Driver 1
+          </button><button id="printRoute2" class="secondary" hidden>Print Driver 2</button>
         </div>
+        <p id="routeSplitMessage" class="hint no-print" role="status"></p>
         <div id="routeStops"></div>
       </section>
       <section id="settingsView" hidden>
         <h2>Event Settings</h2>
-        <form id="settingsForm">
+        <form id="settingsForm" autocomplete="off">
           <div class="grid">
             <label
               >Event name<input
@@ -106,6 +130,7 @@
             ><label class="full"
               >Starting / pickup address<input
                 name="startAddress"
+                autocomplete="off"
                 required
                 maxlength="500"
             /></label>
@@ -151,24 +176,29 @@
           Close
         </button>
       </div>
-      <form id="referralEditor">
+      <form id="referralEditor" autocomplete="off">
         <fieldset>
           <legend>Referring organization</legend>
           <div class="grid">
             <label
               >Organization name<input
                 name="organizationName"
+                autocomplete="off"
                 maxlength="160"
                 required /></label
             ><label
               >Email address<input
                 type="email"
                 name="organizationEmail"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
                 maxlength="254"
                 required /></label
             ><label
               >Phone number<input
                 name="organizationPhone"
+                autocomplete="off"
                 type="tel"
                 maxlength="40"
                 required
@@ -189,7 +219,7 @@
         <h2>Create Event</h2>
         <button id="closeEvent" class="secondary">Close</button>
       </div>
-      <form id="eventEditor">
+      <form id="eventEditor" autocomplete="off">
         <div class="grid">
           <label
             >Event name<input

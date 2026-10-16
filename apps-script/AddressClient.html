@@ -52,10 +52,12 @@ window.MealAddresses = (() => {
         node(
           "p",
           result.confident
-            ? "Please confirm the address for delivery."
-            : "This address could not be confidently confirmed. You may edit it or keep it for administrator review.",
+            ? "Google has validated the recommended address. Confirm your choice, then save the form to apply it."
+            : "Google can suggest an address without verifying that it is deliverable. Accepting a suggestion will keep the address marked Needs Review.",
         ),
       );
+      if (result.reviewMessage)
+        d.append(node("p", result.reviewMessage));
       if (result.unitIssue)
         d.append(
           node(
@@ -78,7 +80,8 @@ window.MealAddresses = (() => {
         resolve(value);
       };
       for (const [label, value] of [
-        ["Use Recommended", "recommended"],
+        [result.confident ? "Use Recommended — Google Verified" :
+          "Use Recommended — Still Needs Review", "recommended"],
         ["Keep What I Entered", "original"],
         ["Edit", "edit"],
       ]) {
@@ -143,6 +146,8 @@ window.MealAddresses = (() => {
     privacy.className = "hint";
     holder.append(privacy);
     input.setAttribute("autocomplete", "off");
+    input.setAttribute("inputmode", "text");
+    input.setAttribute("data-lpignore", "true");
     input.setAttribute("aria-controls", list.id);
     input.setAttribute("aria-expanded", "false");
     input.setAttribute("aria-autocomplete", "list");
@@ -155,6 +160,7 @@ window.MealAddresses = (() => {
       lastSuggestionAt = 0,
       receipt = "",
       checked = input.value.trim(),
+      observedValue = input.value.trim(),
       running = null;
     const labelStatus = (s) =>
       s === "Confirmed"
@@ -163,6 +169,10 @@ window.MealAddresses = (() => {
           ? "Address manually reviewed"
           : "Needs Review";
     status.textContent = labelStatus(initialStatus);
+    const emailInStreetField = (value) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    const autofillMessage =
+      "An email address was inserted into the delivery street address field. Enter the recipient's street address instead.";
     const clear = () => {
       list.hidden = true;
       list.replaceChildren();
@@ -175,9 +185,28 @@ window.MealAddresses = (() => {
       session = null;
       receipt = "";
       checked = input.value.trim();
+      observedValue = checked;
+      input.setCustomValidity("");
       status.textContent = labelStatus(s);
       clear();
     };
+    // Password managers and browser autofill may set .value without an input
+    // event. Reconcile the current DOM value before showing status or saving.
+    function reconcileValue() {
+      const current = input.value.trim();
+      if (current === observedValue) return;
+      observedValue = current;
+      revision++;
+      clearTimeout(timer);
+      timer = null;
+      checked = "";
+      receipt = "";
+      clear();
+      input.setCustomValidity(emailInStreetField(current) ? autofillMessage : "");
+      status.textContent = emailInStreetField(current)
+        ? autofillMessage
+        : "Needs Review — address changed. Check the address before saving.";
+    }
     async function config() {
       if (features) return features;
       if (!configRequest)
@@ -189,9 +218,15 @@ window.MealAddresses = (() => {
     }
     async function validate(candidate) {
       if (running) return running;
+      reconcileValue();
       const original = input.value.trim(),
         rev = revision;
       if (!original) return true;
+      if (emailInStreetField(original)) {
+        input.setCustomValidity(autofillMessage);
+        status.textContent = autofillMessage;
+        return false;
+      }
       const finishFeedback = MealButtonFeedback.begin(check);
       clear();
       clearTimeout(timer);
@@ -203,7 +238,7 @@ window.MealAddresses = (() => {
             checked = original;
             receipt = "";
             status.textContent =
-              "Needs Review — address checking is currently unavailable.";
+              "Needs Review — Google validation is unavailable. The saved address will require administrator review.";
             return true;
           }
           status.textContent = "Checking address…";
@@ -214,7 +249,8 @@ window.MealAddresses = (() => {
             sessionToken: session || "",
           });
         } catch (_) {
-          result = { original, confident: false };
+          result = { original, confident: false,
+            reviewMessage: "Google validation could not be completed. This address will need administrator review." };
         } finally {
           session = null;
         }
@@ -241,10 +277,13 @@ window.MealAddresses = (() => {
           receipt = result.recommendedReceipt || "needs-review";
         } else receipt = result.originalReceipt || "needs-review";
         checked = input.value.trim();
+        observedValue = checked;
+        input.setCustomValidity("");
         status.textContent =
           result.confident && (choice === "recommended" || result.equivalent)
-            ? "Address Verified"
-            : "Needs Review";
+            ? "Google verified this address. Save the form to apply the reviewed address."
+            : "Needs Review — " + (result.reviewMessage ||
+              "Google could not verify this address. Saving the form will not mark it verified.");
         return true;
       })();
       try {
@@ -269,14 +308,13 @@ window.MealAddresses = (() => {
         return validate(address);
       input.value = address + (enteredUnits.length && !selectedUnits.length
         ? ", " + enteredUnits.join(", ") : "");
-      revision++;
-      receipt = "";
-      checked = "";
+      reconcileValue();
       // Clicking a suggestion explicitly selects it. Validate that selected value now.
       return validate();
     }
     function scheduleSuggestions() {
-      if (timer || suggesting || running || input.value.trim().length < 4 ||
+      if (timer || suggesting || running || emailInStreetField(input.value.trim()) ||
+          input.value.trim().length < 4 ||
           input.disabled || !input.isConnected || document.activeElement !== input) return;
       // Start during typing; coalesce edits and allow only one request in flight.
       const delay = Math.max(150, 1000 - (Date.now() - lastSuggestionAt));
@@ -352,17 +390,17 @@ window.MealAddresses = (() => {
       }
     }
     input.addEventListener("focus", () => {
+      reconcileValue();
       // Warm configuration before the first address-search request.
       config().catch(() => {});
     });
     input.addEventListener("input", () => {
-      revision++;
-      receipt = "";
-      checked = "";
-      clear();
-      status.textContent = suggesting ? "Searching addresses…" : "Needs Review";
-      scheduleSuggestions();
+      reconcileValue();
+      if (!emailInStreetField(input.value.trim())) scheduleSuggestions();
     });
+    input.addEventListener("change", reconcileValue);
+    input.addEventListener("blur", reconcileValue);
+    window.addEventListener("pageshow", reconcileValue);
     input.addEventListener("keydown", (e) => {
       if (e.key === "Escape") clear();
       if (e.key === "ArrowDown" && !list.hidden) {
@@ -380,7 +418,10 @@ window.MealAddresses = (() => {
       prepare: () =>
         running ||
         (checked === input.value.trim() ? Promise.resolve(true) : validate()),
-      receipt: () => (checked === input.value.trim() ? receipt : ""),
+      receipt: () => {
+        reconcileValue();
+        return checked === input.value.trim() ? receipt : "";
+      },
     };
     states.set(input, state);
     return state;

@@ -71,15 +71,15 @@ try {
           exact: true,
         })
         .click();
-      await page.getByText("Address Verified", { exact: true }).waitFor();
+      await page.getByText(/Google verified this address/).waitFor();
       assert.equal(await page.locator("dialog[open]").count(), 0);
       assert.equal(
         await input.inputValue(),
         "100 Synthetic Street, Example City, VA 00000",
       );
-      assert.equal(
+      assert.match(
         await page.locator(".address-state").textContent(),
-        "Address Verified",
+        /Google verified this address/,
       );
       assert.equal(
         await page.evaluate(
@@ -94,6 +94,30 @@ try {
     },
   );
   await check(
+    "a browser autofill email in a delivery address is detected without an input event",
+    async () => {
+      const autofillPage = await context.newPage();
+      try {
+        await autofillPage.goto("http://127.0.0.1:4175/");
+        await autofillPage.locator("#eventSelect option").first()
+          .waitFor({ state: "attached" });
+        const street = autofillPage.locator('[name="address"]');
+        await autofillPage.evaluate(() => {
+          document.querySelector('[name="address"]').value = "someone@example.test";
+        });
+        await autofillPage.getByRole("button", { name: "Check Address", exact: true }).click();
+        await autofillPage.getByText(/email address was inserted into the delivery street address field/i).waitFor();
+        assert.equal(await street.evaluate(el => el.validity.customError), true);
+        await street.fill("100 Synthetic Street, Example City, VA 00000");
+        assert.equal(await street.evaluate(el => el.validity.customError), false);
+        await autofillPage.getByRole("button", { name: "Check Address", exact: true }).click();
+        await autofillPage.getByText(/Google verified this address/).waitFor();
+      } finally {
+        await autofillPage.close();
+      }
+    },
+  );
+  await check(
     "keep entered value, Edit choice and equivalent addresses skip confirmation",
     async () => {
       await input.fill("10 Synthetic Lane");
@@ -104,9 +128,9 @@ try {
         .getByRole("button", { name: "Keep What I Entered", exact: true })
         .click();
       assert.equal(await input.inputValue(), "10 Synthetic Lane");
-      assert.equal(
+      assert.match(
         await page.locator(".address-state").textContent(),
-        "Needs Review",
+        /Needs Review/,
       );
       await input.fill("10 Synthetic");
       await page
@@ -122,7 +146,7 @@ try {
       await page
         .getByRole("button", { name: "Check Address", exact: true })
         .click();
-      await page.getByText("Address Verified", { exact: true }).waitFor();
+      await page.getByText(/Google verified this address/).waitFor();
       assert.equal(await page.locator("dialog[open]").count(), 0);
     },
   );
@@ -141,12 +165,12 @@ try {
         )
         .waitFor();
       await page
-        .getByRole("button", { name: "Use Recommended", exact: true })
+        .getByRole("button", { name: /Use Recommended/ })
         .click();
       assert.match(await input.inputValue(), /Apt 4 East/);
-      assert.equal(
+      assert.match(
         await page.locator(".address-state").textContent(),
-        "Needs Review",
+        /Needs Review/,
       );
     },
   );
@@ -258,7 +282,7 @@ try {
       await response;
       assert.equal(await a.inputValue(), "Different Synthetic Street");
       assert.equal(
-        await race.getByText("Address Verified", { exact: true }).count(),
+        await race.getByText(/Google verified this address/).count(),
         0,
       );
       await race.close();
@@ -325,7 +349,7 @@ try {
         .getByRole("button", { name: "Check Address", exact: true })
         .click();
       await admin
-        .getByRole("button", { name: "Use Recommended", exact: true })
+        .getByRole("button", { name: /Use Recommended/ })
         .click();
       await admin
         .getByRole("button", { name: "Save Referral", exact: true })
@@ -369,7 +393,7 @@ try {
         .getByRole("button", { name: "Check Address", exact: true })
         .click();
       await admin
-        .getByRole("button", { name: "Use Recommended", exact: true })
+        .getByRole("button", { name: /Use Recommended/ })
         .click();
       await admin
         .getByRole("button", { name: "Save Event Settings", exact: true })

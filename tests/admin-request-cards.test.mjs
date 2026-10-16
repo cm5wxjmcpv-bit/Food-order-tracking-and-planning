@@ -50,7 +50,7 @@ test('referral review checks every address and requires explicit saving of Googl
   assert.deepEqual(calls, [1, 2]);
   assert.equal(h.nodes.get('saveReferral').textContent, 'Save Reviewed Addresses');
   assert.equal(h.nodes.get('saveReferral').disabled, false);
-  assert.match(h.nodes.get('editorMessage').textContent, /unconfirmed address remains Address Needs Review/);
+  assert.match(h.nodes.get('editorMessage').textContent, /Google suggestion that could not be verified will remain Needs Review/);
 });
 test('choosing Edit stops batch review and allows the administrator to correct the address', async () => {
   const h = reviewHarness([async () => false, async () => assert.fail('Must stop for Edit')]);
