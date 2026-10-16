@@ -1044,7 +1044,7 @@ test("driver split rejects missing, repeated, or all selected stops without chan
   const h=harness(), e=createEvent(h);
   const receipt=ok(h.public(payload(e.EventID,[1,1])));
   ok(approve(h,[receipt.referralId]));
-  const route=ok(h.admin("route",{eventId:e.EventID}), before=h.snapshot();
+  const route=ok(h.admin("route",{eventId:e.EventID})), before=h.snapshot();
   for(const driver2Ids of [
     [route.stops[0].recipientId,route.stops[0].recipientId],
     ["invalid-id"],route.stops.map(x=>x.recipientId)
