@@ -43,6 +43,9 @@
             Event Settings</button
           ><button data-view="reportsView" aria-selected="false">
             Reports
+          </button
+          ><button data-view="archiveView" aria-selected="false">
+            Archived Recipients
           </button>
         </nav>
         <p id="adminMessage" role="status" aria-live="polite"></p>
@@ -57,6 +60,23 @@
         </div>
         <div id="requestCards"></div>
       </section>
+
+      <section id="archiveView" hidden class="no-print">
+        <h2>Reuse Recipients from Archived Events</h2>
+        <p>Choose a past event, select recipients, and copy them to another event. Original archived records will not change. Copied requests are Pending and addresses must be reviewed again.</p>
+        <div class="grid">
+          <label>Archived event<select id="archiveSourceEvent"></select></label>
+          <label>New event<select id="archiveTargetEvent"></select></label>
+        </div>
+        <div class="actions">
+          <button id="archiveSelectAll" type="button" class="secondary">Select All</button>
+          <button id="archiveClear" type="button" class="secondary">Clear Selection</button>
+          <button id="archiveCopy" type="button">Add Selected to Event</button>
+        </div>
+        <p id="archiveCount" class="hint" aria-live="polite"></p>
+        <p id="archiveStatus" role="status" aria-live="polite"></p>
+        <div id="archiveRecipients"></div>
+      </section>
       <section id="routeView" hidden>
         <div class="route-header">
           <h2 id="routeTitle">Delivery Route</h2>
@@ -66,12 +86,16 @@
           <p id="routingAvailability" class="hint no-print"></p>
         </div>
         <div class="actions no-print">
-          <button id="optimizeRoute">Optimize Route</button
+          <button id="optimizeRoute">Optimize Driver 1</button
+          ><button id="optimizeRoute2" hidden>Optimize Driver 2</button
           ><button id="saveRoute">Save Manual Order</button
+          ><button id="splitRoute" class="secondary">Split Route</button
+          ><button id="clearRouteSplit" class="secondary" hidden>Clear Split</button
           ><button id="printRoute" class="secondary">
-            Print Delivery Sheet
-          </button>
+            Print Driver 1
+          </button><button id="printRoute2" class="secondary" hidden>Print Driver 2</button>
         </div>
+        <p id="routeSplitMessage" class="hint no-print" role="status"></p>
         <div id="routeStops"></div>
       </section>
       <section id="settingsView" hidden>
