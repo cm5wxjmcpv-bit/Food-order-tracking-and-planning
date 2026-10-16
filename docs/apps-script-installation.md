@@ -1884,12 +1884,20 @@ function addressPreview_(p) {
     sameAddress_(original, safe.address) &&
     !v.hasReplacedComponents &&
     !v.hasInferredComponents;
+  const reviewMessage = confident
+    ? ""
+    : unitIssue
+      ? "Google could not confirm the apartment or unit information. Keep the unit and review it manually."
+      : !["PREMISE", "SUB_PREMISE"].includes(v.validationGranularity)
+        ? "Google identified a street or area but did not confirm a specific delivery address."
+        : "Google could not confirm every required part of this delivery address.";
   return {
     original,
     recommended: safe.address,
     confident,
     equivalent,
     unitIssue,
+    reviewMessage,
     originalReceipt: addressReceipt_(
       original,
       confident && equivalent ? "Confirmed" : "Needs Review",
@@ -2441,7 +2449,7 @@ Copy only the contents of this code box into the matching Apps Script file.
       </section>
       <section id="settingsView" hidden>
         <h2>Event Settings</h2>
-        <form id="settingsForm">
+        <form id="settingsForm" autocomplete="off">
           <div class="grid">
             <label
               >Event name<input
@@ -2471,6 +2479,7 @@ Copy only the contents of this code box into the matching Apps Script file.
             ><label class="full"
               >Starting / pickup address<input
                 name="startAddress"
+                autocomplete="off"
                 required
                 maxlength="500"
             /></label>
@@ -2516,24 +2525,29 @@ Copy only the contents of this code box into the matching Apps Script file.
           Close
         </button>
       </div>
-      <form id="referralEditor">
+      <form id="referralEditor" autocomplete="off">
         <fieldset>
           <legend>Referring organization</legend>
           <div class="grid">
             <label
               >Organization name<input
                 name="organizationName"
+                autocomplete="off"
                 maxlength="160"
                 required /></label
             ><label
               >Email address<input
                 type="email"
                 name="organizationEmail"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
                 maxlength="254"
                 required /></label
             ><label
               >Phone number<input
                 name="organizationPhone"
+                autocomplete="off"
                 type="tel"
                 maxlength="40"
                 required
@@ -2554,7 +2568,7 @@ Copy only the contents of this code box into the matching Apps Script file.
         <h2>Create Event</h2>
         <button id="closeEvent" class="secondary">Close</button>
       </div>
-      <form id="eventEditor">
+      <form id="eventEditor" autocomplete="off">
         <div class="grid">
           <label
             >Event name<input
@@ -2956,7 +2970,12 @@ Copy only the contents of this code box into the matching Apps Script file.
     input.name = name;
     if (type !== "textarea") input.type = type;
     input.value = value ?? "";
+    input.autocomplete = "off";
     input.maxLength = max;
+    if (type === "email") {
+      input.autocapitalize = "none";
+      input.spellcheck = false;
+    }
     if (type === "number") {
       input.min = "1";
       input.max = "10000";
@@ -3033,12 +3052,14 @@ Copy only the contents of this code box into the matching Apps Script file.
       card.append(
         el(
           "p",
-          addressReviewed(r.AddressStatus)
-            ? r.AddressStatus === "Manually Reviewed"
-              ? "Address manually reviewed (Google validation not performed)"
-              : "Address confirmed"
-            : "Address Needs Review",
-          addressReviewed(r.AddressStatus) ? "hint" : "warning",
+          "Currently saved address: " +
+            (addressReviewed(r.AddressStatus)
+              ? r.AddressStatus === "Manually Reviewed"
+                ? "Manually Reviewed (Google validation not performed)"
+                : "Google Verified"
+              : "Needs Review") +
+            ". Changes in this editor do not take effect until Save Referral is clicked.",
+          "hint",
         ),
       );
       if (r.matches?.length) {
@@ -3156,7 +3177,7 @@ Copy only the contents of this code box into the matching Apps Script file.
         }
       }
       if (current()) $("editorMessage").textContent =
-        "Address checks finished. Click Save Reviewed Addresses to save your choices. Any unconfirmed address remains Address Needs Review.";
+        "Address checks finished. Click Save Reviewed Addresses to store the changes. A Google suggestion that could not be verified will remain Needs Review; you may manually review that saved address afterward.";
     } catch (error) {
       if (current()) $("editorMessage").textContent = error.message;
       throw error;
@@ -3377,7 +3398,7 @@ Copy only the contents of this code box into the matching Apps Script file.
       ? e.StartAddressStatus === "Manually Reviewed"
         ? "Pickup address manually reviewed (Google validation not performed)."
         : "Pickup address confirmed."
-      : "Pickup Address Needs Review";
+      : "Saved Pickup Address Needs Review. Changes take effect after Save Event Settings.";
   }
   function eventPayload(f) {
     return {
@@ -3660,6 +3681,9 @@ Copy only the contents of this code box into the matching Apps Script file.
     task(async () => {
       if (!(await MealAddresses.prepareAll($("referralEditor")))) return;
       const payload = editorPayload();
+      if (editing && payload.organizationEmail !== editing.OrganizationEmail &&
+          !confirm("The referring organization's email address changed. Save this updated contact email?")) return;
+      if (!$("referralEditor").reportValidity()) return;
       try {
         await rpc(editing ? "editReferral" : "createReferral", payload);
         $("referralDialog").close();
@@ -3858,10 +3882,12 @@ window.MealAddresses = (() => {
         node(
           "p",
           result.confident
-            ? "Please confirm the address for delivery."
-            : "This address could not be confidently confirmed. You may edit it or keep it for administrator review.",
+            ? "Google has validated the recommended address. Confirm your choice, then save the form to apply it."
+            : "Google can suggest an address without verifying that it is deliverable. Accepting a suggestion will keep the address marked Needs Review.",
         ),
       );
+      if (result.reviewMessage)
+        d.append(node("p", result.reviewMessage));
       if (result.unitIssue)
         d.append(
           node(
@@ -3884,7 +3910,8 @@ window.MealAddresses = (() => {
         resolve(value);
       };
       for (const [label, value] of [
-        ["Use Recommended", "recommended"],
+        [result.confident ? "Use Recommended — Google Verified" :
+          "Use Recommended — Still Needs Review", "recommended"],
         ["Keep What I Entered", "original"],
         ["Edit", "edit"],
       ]) {
@@ -3949,6 +3976,8 @@ window.MealAddresses = (() => {
     privacy.className = "hint";
     holder.append(privacy);
     input.setAttribute("autocomplete", "off");
+    input.setAttribute("inputmode", "text");
+    input.setAttribute("data-lpignore", "true");
     input.setAttribute("aria-controls", list.id);
     input.setAttribute("aria-expanded", "false");
     input.setAttribute("aria-autocomplete", "list");
@@ -3961,6 +3990,7 @@ window.MealAddresses = (() => {
       lastSuggestionAt = 0,
       receipt = "",
       checked = input.value.trim(),
+      observedValue = input.value.trim(),
       running = null;
     const labelStatus = (s) =>
       s === "Confirmed"
@@ -3969,6 +3999,10 @@ window.MealAddresses = (() => {
           ? "Address manually reviewed"
           : "Needs Review";
     status.textContent = labelStatus(initialStatus);
+    const emailInStreetField = (value) =>
+      /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value);
+    const autofillMessage =
+      "An email address was inserted into the delivery street address field. Enter the recipient's street address instead.";
     const clear = () => {
       list.hidden = true;
       list.replaceChildren();
@@ -3981,9 +4015,28 @@ window.MealAddresses = (() => {
       session = null;
       receipt = "";
       checked = input.value.trim();
+      observedValue = checked;
+      input.setCustomValidity("");
       status.textContent = labelStatus(s);
       clear();
     };
+    // Password managers and browser autofill may set .value without an input
+    // event. Reconcile the current DOM value before showing status or saving.
+    function reconcileValue() {
+      const current = input.value.trim();
+      if (current === observedValue) return;
+      observedValue = current;
+      revision++;
+      clearTimeout(timer);
+      timer = null;
+      checked = "";
+      receipt = "";
+      clear();
+      input.setCustomValidity(emailInStreetField(current) ? autofillMessage : "");
+      status.textContent = emailInStreetField(current)
+        ? autofillMessage
+        : "Needs Review — address changed. Check the address before saving.";
+    }
     async function config() {
       if (features) return features;
       if (!configRequest)
@@ -3995,9 +4048,15 @@ window.MealAddresses = (() => {
     }
     async function validate(candidate) {
       if (running) return running;
+      reconcileValue();
       const original = input.value.trim(),
         rev = revision;
       if (!original) return true;
+      if (emailInStreetField(original)) {
+        input.setCustomValidity(autofillMessage);
+        status.textContent = autofillMessage;
+        return false;
+      }
       const finishFeedback = MealButtonFeedback.begin(check);
       clear();
       clearTimeout(timer);
@@ -4009,7 +4068,7 @@ window.MealAddresses = (() => {
             checked = original;
             receipt = "";
             status.textContent =
-              "Needs Review — address checking is currently unavailable.";
+              "Needs Review — Google validation is unavailable. The saved address will require administrator review.";
             return true;
           }
           status.textContent = "Checking address…";
@@ -4020,7 +4079,8 @@ window.MealAddresses = (() => {
             sessionToken: session || "",
           });
         } catch (_) {
-          result = { original, confident: false };
+          result = { original, confident: false,
+            reviewMessage: "Google validation could not be completed. This address will need administrator review." };
         } finally {
           session = null;
         }
@@ -4047,10 +4107,13 @@ window.MealAddresses = (() => {
           receipt = result.recommendedReceipt || "needs-review";
         } else receipt = result.originalReceipt || "needs-review";
         checked = input.value.trim();
+        observedValue = checked;
+        input.setCustomValidity("");
         status.textContent =
           result.confident && (choice === "recommended" || result.equivalent)
-            ? "Address Verified"
-            : "Needs Review";
+            ? "Google verified this address. Save the form to apply the reviewed address."
+            : "Needs Review — " + (result.reviewMessage ||
+              "Google could not verify this address. Saving the form will not mark it verified.");
         return true;
       })();
       try {
@@ -4075,14 +4138,13 @@ window.MealAddresses = (() => {
         return validate(address);
       input.value = address + (enteredUnits.length && !selectedUnits.length
         ? ", " + enteredUnits.join(", ") : "");
-      revision++;
-      receipt = "";
-      checked = "";
+      reconcileValue();
       // Clicking a suggestion explicitly selects it. Validate that selected value now.
       return validate();
     }
     function scheduleSuggestions() {
-      if (timer || suggesting || running || input.value.trim().length < 4 ||
+      if (timer || suggesting || running || emailInStreetField(input.value.trim()) ||
+          input.value.trim().length < 4 ||
           input.disabled || !input.isConnected || document.activeElement !== input) return;
       // Start during typing; coalesce edits and allow only one request in flight.
       const delay = Math.max(150, 1000 - (Date.now() - lastSuggestionAt));
@@ -4158,17 +4220,17 @@ window.MealAddresses = (() => {
       }
     }
     input.addEventListener("focus", () => {
+      reconcileValue();
       // Warm configuration before the first address-search request.
       config().catch(() => {});
     });
     input.addEventListener("input", () => {
-      revision++;
-      receipt = "";
-      checked = "";
-      clear();
-      status.textContent = suggesting ? "Searching addresses…" : "Needs Review";
-      scheduleSuggestions();
+      reconcileValue();
+      if (!emailInStreetField(input.value.trim())) scheduleSuggestions();
     });
+    input.addEventListener("change", reconcileValue);
+    input.addEventListener("blur", reconcileValue);
+    window.addEventListener("pageshow", reconcileValue);
     input.addEventListener("keydown", (e) => {
       if (e.key === "Escape") clear();
       if (e.key === "ArrowDown" && !list.hidden) {
@@ -4186,7 +4248,10 @@ window.MealAddresses = (() => {
       prepare: () =>
         running ||
         (checked === input.value.trim() ? Promise.resolve(true) : validate()),
-      receipt: () => (checked === input.value.trim() ? receipt : ""),
+      receipt: () => {
+        reconcileValue();
+        return checked === input.value.trim() ? receipt : "";
+      },
     };
     states.set(input, state);
     return state;
