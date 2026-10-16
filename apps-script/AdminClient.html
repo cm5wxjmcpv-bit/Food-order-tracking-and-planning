@@ -85,8 +85,8 @@
       finishFeedback();
       $("adminEvents").disabled = false;
       $("showArchived").disabled = false;
-      $("archiveCopy").disabled = false;
-      $("splitRoute").disabled = readonly();
+      $("archiveCopy").disabled = !$("archiveSourceEvent").value || !$("archiveTargetEvent").value;
+      $("splitRoute").disabled = readonly() || !route || route.stops.length<2 || routeUnsaved;
     }
   }
   const dateLabel = (s) =>
@@ -160,6 +160,7 @@
       $("integrityNotice").textContent = "";
       $("addReferral").disabled = true;
       await reports();
+      if (view === "archiveView") await loadArchivedRecipients();
       return;
     }
     dashboard = await rpc("dashboard", { eventId: id });
@@ -680,6 +681,9 @@
         });
         pick.append(checkbox, el("span", "Assign to Driver 2"));
         card.append(pick);
+        card.addEventListener("click", ev=>{
+          if(!ev.target.closest("a,button,label,input")) checkbox.click();
+        });
       }
       const address = el("p", null, "address"),
         link = el("a", r.address);
@@ -920,7 +924,7 @@
           break;
         }
       }
-      if(!message.includes("incomplete")) message += " Both routes optimized.";
+      if(!message.includes("incomplete")) message += " Available driver routes optimized.";
     } else {
       message += route.mapsEnabled
         ? " Address review is required before automatic optimization."
@@ -954,7 +958,7 @@
   $("archiveSourceEvent").addEventListener("change",()=>task(loadArchivedRecipients));
   $("archiveSelectAll").addEventListener("click",()=>{
     [...$("archiveRecipients").querySelectorAll('input[type="checkbox"]')]
-      .slice(0,100).forEach(x=>x.checked=true);
+      .forEach((x,i)=>x.checked=i<100);
     updateArchiveCount();
   });
   $("archiveClear").addEventListener("click",()=>{
