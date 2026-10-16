@@ -1,4 +1,4 @@
-const MEALS_BACKEND_VERSION = "2026-10-13-integrity-recovery-v1";
+const MEALS_BACKEND_VERSION = "2026-10-16-archived-reuse-split-routes-v1";
 function include_(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
@@ -100,6 +100,7 @@ function adminCall(action, p) {
         a.DeliveryDate.localeCompare(b.DeliveryDate),
       );
     if (action === "dashboard") return dashboard_(auth.state, p);
+    if (action === "archivedRecipients") return archivedRecipients_(auth.state, p);
     if (action === "route") return route_(auth.state, id_(p.eventId));
     if (action === "reports") return reports_(auth.state, p);
     if (action === "createReferral") return submit_(p, auth.email);
@@ -112,6 +113,8 @@ function adminCall(action, p) {
           return manualAddressReview_(s, p, admin);
         case "saveEvent":
           return eventWrite_(s, p, admin);
+        case "copyArchivedRecipients":
+          return copyArchivedRecipients_(s, p, admin);
         case "archive":
           return archiveWrite_(s, p, admin);
         case "statuses":
@@ -120,6 +123,8 @@ function adminCall(action, p) {
           return editReferral_(s, p, admin);
         case "reorder":
           return routeOrder_(s, p, admin, false);
+        case "splitRoute":
+          return splitRoute_(s, p, admin);
         default:
           fail_("FORBIDDEN", "This administrator operation is unavailable.");
       }
